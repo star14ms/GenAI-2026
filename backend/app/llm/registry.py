@@ -16,9 +16,9 @@ def get_provider(provider_id: str) -> Optional[LLMProvider]:
 
 
 def list_providers() -> list[dict]:
-    """List all available providers with id and name."""
+    """List all available providers with id, name, and model version."""
     return [
-        {"id": p.id, "name": p.name}
+        {"id": p.id, "name": p.name, "model": getattr(p, "model", "")}
         for p in _PROVIDERS.values()
     ]
 

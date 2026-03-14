@@ -12,10 +12,11 @@ interface Message {
 interface Provider {
   id: string;
   name: string;
+  model?: string;
 }
 
 export default function ChatPage() {
-  const [provider, setProvider] = useState<string>("gemini");
+  const [provider, setProvider] = useState<string>("chatgpt");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -110,7 +111,7 @@ export default function ChatPage() {
         <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>
           Chatbot
         </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
           <label htmlFor="provider" style={{ fontSize: "0.875rem" }}>
             LLM:
           </label>
@@ -130,14 +131,14 @@ export default function ChatPage() {
             {providers.length > 0 ? (
               providers.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {p.name}{p.model ? ` (${p.model})` : ""}
                 </option>
               ))
             ) : (
               <>
+                <option value="chatgpt">ChatGPT</option>
                 <option value="gemini">Gemini</option>
                 <option value="claude">Claude</option>
-                <option value="chatgpt">ChatGPT</option>
               </>
             )}
           </select>

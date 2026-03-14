@@ -13,6 +13,10 @@ class ClaudeProvider:
     def id(self) -> str:
         return "claude"
 
+    @property
+    def model(self) -> str:
+        return "claude-3-5-sonnet-20241022"
+
     def chat(self, messages: list[ChatMessage]) -> str:
         from anthropic import Anthropic
 

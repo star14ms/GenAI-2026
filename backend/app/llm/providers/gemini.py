@@ -13,6 +13,10 @@ class GeminiProvider:
     def id(self) -> str:
         return "gemini"
 
+    @property
+    def model(self) -> str:
+        return "gemini-2.0-flash"
+
     def chat(self, messages: list[ChatMessage]) -> str:
         from google import genai
         from google.genai import types

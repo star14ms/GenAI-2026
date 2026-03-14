@@ -1,0 +1,12 @@
+---
+description: This project includes chat with LLMs through their APIs
+alwaysApply: true
+---
+
+# LLM Chat via APIs
+
+This project includes chat functionality with Large Language Models (LLMs) through their APIs.
+
+- When working on chat or LLM-related code, consider API clients, request/response handling, and streaming where applicable
+- Use official SDKs or well-maintained libraries for LLM providers (e.g., OpenAI, Anthropic, etc.)
+- Keep API keys and secrets in environment variables or secure config, never in source code

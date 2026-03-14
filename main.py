@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
@@ -7,6 +9,16 @@ from backend.app.llm import get_provider, list_providers, ChatMessage
 from backend.app.stocks.routers import router
 
 app = FastAPI(title="Web Service API")
+
+
+@app.on_event("startup")
+def startup():
+    try:
+        from dotenv import load_dotenv
+        env_path = Path(__file__).resolve().parent / ".env"
+        load_dotenv(env_path)
+    except ImportError:
+        pass
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,8 +79,15 @@ def chat(request: ChatRequest):
         reply = provider.chat(messages)
         return ChatResponse(reply=reply)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        status = 503 if "unreachable" in str(e).lower() else 400
+        raise HTTPException(status_code=status, detail=str(e))
     except Exception as e:
+        from openai import APIConnectionError
+        if isinstance(e, APIConnectionError):
+            raise HTTPException(
+                status_code=503,
+                detail="The LLM server is unreachable. Please try again later or use a different provider.",
+            )
         raise HTTPException(status_code=500, detail=str(e))
 
 

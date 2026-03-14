@@ -1,5 +1,6 @@
 fastapi
 mangum
+python-dotenv
 uvicorn[standard]
 google-genai
 anthropic

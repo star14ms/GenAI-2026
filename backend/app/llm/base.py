@@ -26,6 +26,11 @@ class LLMProvider(Protocol):
         """Unique identifier used in API (e.g. 'gemini', 'claude')."""
         ...
 
+    @property
+    def model(self) -> str:
+        """Model version used (e.g. 'gpt-4o-mini', 'gemini-2.0-flash')."""
+        ...
+
     def chat(self, messages: list[ChatMessage]) -> str:
         """Send messages and return the assistant's reply."""
         ...
