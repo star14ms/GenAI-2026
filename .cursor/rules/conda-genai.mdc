@@ -1,0 +1,12 @@
+---
+description: Conda environment "GenAI" for this project
+alwaysApply: true
+---
+
+# Conda Environment
+
+This project uses the conda environment **GenAI**.
+
+- Activate before running Python/backend commands: `conda activate GenAI`
+- When suggesting terminal commands for this project, assume or include activation of the GenAI environment
+- For pip installs, backend runs, or Python scripts, use the GenAI environment
