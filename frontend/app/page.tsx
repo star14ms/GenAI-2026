@@ -37,21 +37,21 @@ export default function Home() {
 
     const apiPromise = hasApi
       ? Promise.all([
-          fetch(`${base}/health`).then((r) => r.json()),
-          fetch(`${base}/api/hello`).then((r) => r.json()),
-        ]).then(([health, hello]) => ({ health, hello }))
+        fetch(`${base}/health`).then((r) => r.json()),
+        fetch(`${base}/api/hello`).then((r) => r.json()),
+      ]).then(([health, hello]) => ({ health, hello }))
       : Promise.resolve({ health: null, hello: null });
 
     const fetchItems = () =>
       hasSupabase && supabase
         ? supabase
-            .from("items")
-            .select("id, title, created_at")
-            .order("created_at", { ascending: false })
-            .then(({ data, error }) => {
-              if (error) throw error;
-              return data;
-            })
+          .from("items")
+          .select("id, title, created_at")
+          .order("created_at", { ascending: false })
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return data;
+          })
         : Promise.resolve(null);
 
     const supabasePromise = Promise.resolve(fetchItems()).catch((err) => {
@@ -195,6 +195,11 @@ export default function Home() {
       <p style={{ marginBottom: "1.5rem" }}>
         <a href="/chat" style={{ color: "#2563eb", textDecoration: "none" }}>
           → Chatbot (Gemini, Claude, ChatGPT)
+        </a>
+      </p>
+      <p style={{ marginBottom: "1.5rem" }}>
+        <a href="/stocks" style={{ color: "#2563eb", textDecoration: "none" }}>
+          → Stock History (1Y / 3Y / 5Y / 10Y)
         </a>
       </p>
 

@@ -5,9 +5,33 @@ from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
 import pytz
-from .base import data_client
+from .model import get_stock_features, get_historical_price_series
+from .predict import train_linear_model, predict_next_close
 
 router = APIRouter()
+
+
+@router.get("/api/stocks/history/{symbol}")
+def get_stock_history(symbol: str, years: int = 1):
+    if years not in (1, 3, 5, 10):
+        raise HTTPException(status_code=400, detail="Years must be one of: 1, 3, 5, 10")
+
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol:
+        raise HTTPException(status_code=400, detail="Symbol is required")
+
+    try:
+        points = get_historical_price_series(clean_symbol, years)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching stock history: {str(e)}")
+
+    return {
+        "symbol": clean_symbol,
+        "years": years,
+        "points": points,
+    }
 
 @router.get("/analysis/{symbol}")
 def get_stock_analysis(symbol: str, days: int = 30):
@@ -18,51 +42,63 @@ def get_stock_analysis(symbol: str, days: int = 30):
         raise HTTPException(status_code=400, detail="Days must be between 1 and 365.")
     
     try:
-        # Use a fixed end date to bypass subscription limits for recent data
-        end_date = datetime(2024, 12, 31, tzinfo=pytz.UTC)
-        start_date = end_date - timedelta(days=days)
-        
-        request = StockBarsRequest(
-            symbol_or_symbols=symbol.upper(),
-            timeframe=TimeFrame.Day,
-            start=start_date,
-            end=end_date
-        )
-        
-        bars = data_client.get_stock_bars(request)
-        df = bars.df
-        
-        if df.empty:
-            return {"error": "No data available for this symbol in the specified period."}
-        
-        # Basic analysis: Add moving averages and RSI
-        df['SMA_20'] = ta.sma(df['close'], length=20)
-        df['RSI'] = ta.rsi(df['close'], length=14)
-        
-        # Example: Check if RSI > 70 (overbought) or < 30 (oversold)
-        latest_rsi = df['RSI'].iloc[-1]
-        if pd.isna(latest_rsi):
-            signal = "Insufficient data for RSI calculation"
-        elif latest_rsi > 70:
-            signal = "Overbought - Consider selling"
-        elif latest_rsi < 30:
-            signal = "Oversold - Consider buying"
-        else:
-            signal = "Neutral"
-        
-        # Convert DataFrame to dict for JSON response, replacing NaN with None
-        import numpy as np
-        data = df.tail(5).to_dict(orient='records')
-        # Replace NaN with None for JSON compliance
-        for record in data:
-            for key, value in record.items():
-                if isinstance(value, float) and np.isnan(value):
-                    record[key] = None
-        
-        return {
-            "data": data,
-            "signal": signal,
-            "latest_price": df['close'].iloc[-1] if not df.empty else None
-        }
+        df = get_stock_features(symbol, days)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
+
+    # Drop ML target columns from display payload
+    df = df.drop(columns=['target', 'target_3m_avg'], errors='ignore')
+    
+    # Use RSI for signal
+    latest_rsi = df['RSI'].iloc[-1] if 'RSI' in df.columns else None
+    if pd.isna(latest_rsi):
+        signal = "Insufficient data for analysis"
+    elif latest_rsi > 70:
+        signal = "Overbought - Consider selling"
+    elif latest_rsi < 30:
+        signal = "Oversold - Consider buying"
+    else:
+        signal = "Neutral"
+    
+    # Convert DataFrame to dict for JSON response, replacing NaN with None
+    import numpy as np
+    data = df.tail(5).to_dict(orient='records')
+    # Replace NaN with None for JSON compliance
+    for record in data:
+        for key, value in record.items():
+            if isinstance(value, float) and np.isnan(value):
+                record[key] = None
+
+    return {
+        "data": data,
+        "signal": signal,
+        "latest_price": df['close'].iloc[-1] if not df.empty else None
+    }
+
+@router.get("/predict/{symbol}")
+def get_stock_prediction(symbol: str, days: int = 180):
+    if not symbol or not symbol.isalpha() or len(symbol) > 5:
+        raise HTTPException(status_code=400, detail="Invalid stock symbol. Must be 1-5 alphabetic characters.")
+
+    if days < 30 or days > 365:
+        raise HTTPException(status_code=400, detail="Days must be between 30 and 365.")
+
+    try:
+        df = get_stock_features(symbol, days)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
+
+    model = train_linear_model(df)
+    prediction = predict_next_close(df, model)
+
+    return {
+        "symbol": symbol.upper(),
+        "prediction_3m_avg": prediction,
+        "prediction_horizon_trading_days": 63,
+        "model": model,
+        "features_used": model.get("feature_cols"),
+    }

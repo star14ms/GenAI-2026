@@ -9,3 +9,4 @@ python-dotenv
 alpaca-py
 pandas-ta
 pytz
+yfinance
