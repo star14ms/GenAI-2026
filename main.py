@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 from pydantic import BaseModel
 
-from app.llm import get_provider, list_providers, ChatMessage
+from backend.app.llm import get_provider, list_providers, ChatMessage
+from backend.app.stocks.routers import router
 
 app = FastAPI(title="Web Service API")
 
@@ -14,6 +15,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(router)
 
 
 class ChatRequest(BaseModel):

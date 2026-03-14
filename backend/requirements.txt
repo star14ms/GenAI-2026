@@ -4,3 +4,7 @@ uvicorn[standard]
 google-genai
 anthropic
 openai
+python-dotenv
+alpaca-py
+pandas-ta
+pytz
