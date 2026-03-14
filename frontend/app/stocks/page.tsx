@@ -18,6 +18,10 @@ export default function StocksPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const handleVisualize = () => {
+    loadHistory(years);
+  };
+
   const loadHistory = async (nextYears: (typeof RANGES)[number]) => {
     const cleanSymbol = symbol.trim().toUpperCase();
     if (!cleanSymbol) {
@@ -100,6 +104,11 @@ export default function StocksPage() {
         <input
           value={symbol}
           onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              handleVisualize();
+            }
+          }}
           placeholder="e.g. AAPL"
           style={{
             padding: "0.5rem 0.75rem",
@@ -108,6 +117,21 @@ export default function StocksPage() {
             minWidth: "10rem",
           }}
         />
+
+        <button
+          onClick={handleVisualize}
+          disabled={loading}
+          style={{
+            padding: "0.5rem 0.75rem",
+            borderRadius: "8px",
+            border: "1px solid #ccc",
+            background: "#111827",
+            color: "#fff",
+            cursor: loading ? "not-allowed" : "pointer",
+          }}
+        >
+          Visualize (Enter)
+        </button>
 
         {RANGES.map((range) => (
           <button
