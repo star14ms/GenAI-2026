@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import Link from "next/link";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -23,7 +25,7 @@ interface Tool {
 }
 
 export default function ChatPage() {
-  const { user, profile, signInWithGoogle, signOut } = useAuth();
+  const { user, loading: authLoading, signInWithGoogle } = useAuth();
   const [provider, setProvider] = useState<string>("chatgpt");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -32,6 +34,8 @@ export default function ChatPage() {
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -60,9 +64,60 @@ export default function ChatPage() {
       .catch(() => setTools([]));
   }, []);
 
+  useEffect(() => {
+    if (!user?.id || !supabase) {
+      setHistoryLoading(false);
+      return;
+    }
+    setHistoryError(null);
+    Promise.resolve(
+      supabase
+        .from("chat_messages")
+        .select("role, content")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+    )
+      .then(({ data, error }) => {
+        setHistoryLoading(false);
+        if (error) {
+          setHistoryError(
+            error.code === "42P01"
+              ? "Chat history table not found. Run supabase/migrations/20250315000000_create_chat_messages.sql in Supabase SQL Editor."
+              : error.message
+          );
+          return;
+        }
+        if (data) {
+          setMessages(data as Message[]);
+        }
+      })
+      .catch((err) => {
+        setHistoryLoading(false);
+        setHistoryError("Could not load chat history.");
+      });
+  }, [user?.id]);
+
+  const saveMessage = async (role: "user" | "assistant", content: string): Promise<string | null> => {
+    if (!user?.id || !supabase) return null;
+    const { error } = await supabase.from("chat_messages").insert({
+      user_id: user.id,
+      role,
+      content,
+    });
+    if (error) {
+      console.error("Failed to save message:", error);
+      return error.message;
+    }
+    return null;
+  };
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
+    if (!user) {
+      setError("Please sign in to chat");
+      return;
+    }
 
     const base = API_URL.replace(/\/$/, "");
     if (!base || base === "undefined") {
@@ -77,6 +132,11 @@ export default function ChatPage() {
     setError(null);
 
     try {
+      const saveUserErr = await saveMessage("user", text);
+      if (saveUserErr) {
+        setError(`Could not save message: ${saveUserErr}`);
+      }
+
       const response = await fetch(`${base}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -97,16 +157,38 @@ export default function ChatPage() {
         throw new Error(data.detail || "Failed to get reply");
       }
 
+      const assistantContent = data.reply || "";
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply || "" },
+        { role: "assistant", content: assistantContent },
       ]);
+      const saveAsstErr = await saveMessage("assistant", assistantContent);
+      if (saveAsstErr) {
+        setError(`Could not save reply: ${saveAsstErr}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setMessages((prev) => prev.slice(0, -1));
       setInput(text);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const clearHistory = async () => {
+    if (!user?.id || !supabase || loading || historyLoading) return;
+    if (!confirm("Clear all chat history and start a new conversation?")) return;
+    setHistoryLoading(true);
+    try {
+      const { error } = await supabase
+        .from("chat_messages")
+        .delete()
+        .eq("user_id", user.id);
+      if (!error) {
+        setMessages([]);
+      }
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -125,6 +207,54 @@ export default function ChatPage() {
       sendMessage();
     }
   };
+
+  if (!authLoading && !user) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          maxWidth: "48rem",
+          margin: "0 auto",
+          padding: "2rem",
+          textAlign: "center",
+        }}
+      >
+        <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>Chatbot</h1>
+        <p style={{ color: "#666", marginBottom: "1.5rem" }}>
+          Sign in to chat and save your conversation history.
+        </p>
+        <button
+          onClick={() => signInWithGoogle()}
+          style={{
+            padding: "0.5rem 1rem",
+            fontSize: "0.875rem",
+            borderRadius: "6px",
+            border: "none",
+            background: "#4285f4",
+            color: "white",
+            cursor: "pointer",
+          }}
+        >
+          Sign in with Google
+        </button>
+        <Link
+          href="/"
+          style={{
+            marginTop: "1rem",
+            fontSize: "0.875rem",
+            color: "#666",
+            textDecoration: "none",
+          }}
+        >
+          ← Back to Home
+        </Link>
+      </main>
+    );
+  }
 
   return (
     <main
@@ -173,10 +303,27 @@ export default function ChatPage() {
             )}
           </select>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {user && profile && (
+            {user && (
               <span style={{ fontSize: "0.75rem", color: "#666" }}>
-                {profile.full_name || profile.email}
+                {String(user.user_metadata?.full_name || user.user_metadata?.name || user.email || "")}
               </span>
+            )}
+            {messages.length > 0 && (
+              <button
+                onClick={clearHistory}
+                disabled={loading || historyLoading}
+                style={{
+                  fontSize: "0.875rem",
+                  padding: "0.375rem 0.75rem",
+                  borderRadius: "6px",
+                  border: "1px solid #ccc",
+                  background: "white",
+                  color: "#666",
+                  cursor: loading || historyLoading ? "not-allowed" : "pointer",
+                }}
+              >
+                Clear history
+              </button>
             )}
             <a
               href="/"
@@ -245,7 +392,7 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {error && (
+      {(error || historyError) && (
         <div
           style={{
             padding: "0.75rem",
@@ -256,7 +403,7 @@ export default function ChatPage() {
             fontSize: "0.875rem",
           }}
         >
-          {error}
+          {error || historyError}
         </div>
       )}
 
@@ -271,7 +418,19 @@ export default function ChatPage() {
           marginBottom: "1rem",
         }}
       >
-        {messages.length === 0 && (
+        {historyLoading && (
+          <p
+            style={{
+              color: "#888",
+              fontSize: "0.875rem",
+              textAlign: "center",
+              marginTop: "2rem",
+            }}
+          >
+            Loading chat history…
+          </p>
+        )}
+        {!historyLoading && messages.length === 0 && (
           <p
             style={{
               color: "#888",
@@ -349,7 +508,7 @@ export default function ChatPage() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
-          disabled={loading}
+          disabled={loading || historyLoading}
           rows={2}
           style={{
             flex: 1,
@@ -363,7 +522,7 @@ export default function ChatPage() {
         />
         <button
           onClick={sendMessage}
-          disabled={loading || !input.trim()}
+          disabled={loading || historyLoading || !input.trim()}
           style={{
             padding: "0.75rem 1.25rem",
             borderRadius: "8px",
@@ -372,7 +531,7 @@ export default function ChatPage() {
             color: "white",
             fontSize: "0.9375rem",
             fontWeight: 500,
-            cursor: loading || !input.trim() ? "not-allowed" : "pointer",
+            cursor: loading || historyLoading || !input.trim() ? "not-allowed" : "pointer",
             alignSelf: "flex-end",
           }}
         >

@@ -36,14 +36,13 @@
 2. Paste **Client ID** and **Client Secret**
 3. Save
 
-## 4. Run Database Migration (fixes profiles 404)
+## 4. Run Database Migration (chat history)
 
-The `profiles` table stores user info (name, avatar). Without it you get 404 errors in the console.
+User info comes from **Authentication → Users** (Supabase Auth). For chat history, run:
 
-**Option A – Supabase SQL Editor (recommended):**
+**Option A – Supabase SQL Editor:**
 1. Supabase Dashboard → **SQL Editor**
-2. Copy the contents of `supabase/migrations/20250314000000_create_profiles.sql`
-3. Run the SQL
+2. Run `supabase/migrations/20250315000000_create_chat_messages.sql`
 
 **Option B – Supabase CLI:**
 ```bash

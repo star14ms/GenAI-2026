@@ -17,7 +17,7 @@ interface ApiState {
 }
 
 export default function Home() {
-  const { user, profile, loading: authLoading, signingIn, signInWithGoogle, signOut } = useAuth();
+  const { user, loading: authLoading, signingIn, signInWithGoogle, signOut } = useAuth();
   const [state, setState] = useState<ApiState>({
     health: null,
     hello: null,
@@ -110,9 +110,9 @@ export default function Home() {
             <span style={{ fontSize: "0.875rem", color: "#666" }}>Loading auth…</span>
           ) : user ? (
               <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                {profile?.avatar_url && (
+                {user.user_metadata?.avatar_url && (
                   <img
-                    src={profile.avatar_url}
+                    src={String(user.user_metadata.avatar_url)}
                     alt=""
                     width={32}
                     height={32}
@@ -120,7 +120,7 @@ export default function Home() {
                   />
                 )}
                 <span style={{ fontSize: "0.875rem", color: "#333" }}>
-                  {profile?.full_name || profile?.email || user.email}
+                  {String(user.user_metadata?.full_name || user.user_metadata?.name || user.email || "")}
                 </span>
                 <button
                   onClick={() => signOut()}
