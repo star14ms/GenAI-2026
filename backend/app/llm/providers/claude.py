@@ -17,7 +17,7 @@ class ClaudeProvider:
     def model(self) -> str:
         return "claude-3-5-sonnet-20241022"
 
-    def chat(self, messages: list[ChatMessage]) -> str:
+    def chat(self, messages: list[ChatMessage], tools: list[str] | None = None) -> str:
         from anthropic import Anthropic
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -26,19 +26,25 @@ class ClaudeProvider:
 
         client = Anthropic(api_key=api_key)
 
-        # Claude expects messages in their format
+        system_text = None
         formatted = []
         for msg in messages:
+            if msg.role == "system":
+                system_text = msg.content
+                continue
             if msg.role == "user":
                 formatted.append({"role": "user", "content": msg.content})
             elif msg.role == "assistant":
                 formatted.append({"role": "assistant", "content": msg.content})
 
-        response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1024,
-            messages=formatted,
-        )
+        create_kwargs = {
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 1024,
+            "messages": formatted,
+        }
+        if system_text:
+            create_kwargs["system"] = system_text
+        response = client.messages.create(**create_kwargs)
 
         if response.content and len(response.content) > 0:
             block = response.content[0]

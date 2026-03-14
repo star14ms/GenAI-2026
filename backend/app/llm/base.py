@@ -1,4 +1,4 @@
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 
 class ChatMessage:
@@ -31,6 +31,6 @@ class LLMProvider(Protocol):
         """Model version used (e.g. 'gpt-4o-mini', 'gemini-2.0-flash')."""
         ...
 
-    def chat(self, messages: list[ChatMessage]) -> str:
-        """Send messages and return the assistant's reply."""
+    def chat(self, messages: list[ChatMessage], tools: Optional[list[str]] = None) -> str:
+        """Send messages and return the assistant's reply. tools: optional list of tool ids (e.g. web_search)."""
         ...

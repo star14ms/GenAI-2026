@@ -17,7 +17,7 @@ class GeminiProvider:
     def model(self) -> str:
         return "gemini-2.0-flash"
 
-    def chat(self, messages: list[ChatMessage]) -> str:
+    def chat(self, messages: list[ChatMessage], tools: list[str] | None = None) -> str:
         from google import genai
         from google.genai import types
 
@@ -27,16 +27,22 @@ class GeminiProvider:
 
         client = genai.Client(api_key=api_key)
 
+        system_instruction = None
         contents = []
         for msg in messages:
+            if msg.role == "system":
+                system_instruction = msg.content
+                continue
             role = "user" if msg.role == "user" else "model"
             contents.append(
                 types.Content(role=role, parts=[types.Part.from_text(text=msg.content)])
             )
 
+        gen_config = types.GenerateContentConfig(system_instruction=system_instruction) if system_instruction else None
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=contents,
+            config=gen_config,
         )
 
         if response.text:

@@ -15,11 +15,20 @@ interface Provider {
   model?: string;
 }
 
+interface Tool {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export default function ChatPage() {
   const [provider, setProvider] = useState<string>("chatgpt");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
+  const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -39,6 +48,14 @@ export default function ChatPage() {
       .then((r) => r.json())
       .then((data) => setProviders(data.providers || []))
       .catch(() => setProviders([]));
+    fetch(`${base}/api/chat/system-prompt`)
+      .then((r) => r.json())
+      .then((data) => setSystemPrompt(data.system_prompt || ""))
+      .catch(() => {});
+    fetch(`${base}/api/chat/tools`)
+      .then((r) => r.json())
+      .then((data) => setTools(data.tools || []))
+      .catch(() => setTools([]));
   }, []);
 
   const sendMessage = async () => {
@@ -67,6 +84,8 @@ export default function ChatPage() {
             role: m.role,
             content: m.content,
           })),
+          system_prompt: systemPrompt.trim() || undefined,
+          tools: selectedTools.size > 0 ? Array.from(selectedTools) : undefined,
         }),
       });
 
@@ -87,6 +106,15 @@ export default function ChatPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleTool = (id: string) => {
+    setSelectedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -153,6 +181,59 @@ export default function ChatPage() {
           >
             ← Back
           </a>
+        </div>
+        {tools.length > 0 && (
+          <div style={{ marginTop: "0.5rem" }}>
+            <span style={{ fontSize: "0.875rem", color: "#666", display: "block", marginBottom: "0.25rem" }}>
+              Tools (ChatGPT only):
+            </span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 1rem" }}>
+              {tools.map((t) => (
+                <label
+                  key={t.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.375rem",
+                    fontSize: "0.875rem",
+                    cursor: "pointer",
+                  }}
+                  title={t.description}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedTools.has(t.id)}
+                    onChange={() => toggleTool(t.id)}
+                    disabled={loading || provider !== "chatgpt"}
+                  />
+                  {t.name}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ marginTop: "0.5rem" }}>
+          <label htmlFor="system-prompt" style={{ fontSize: "0.875rem", color: "#666" }}>
+            System prompt (editable):
+          </label>
+          <textarea
+            id="system-prompt"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            placeholder="Current system prompt (editable)"
+            rows={2}
+            disabled={loading}
+            style={{
+              width: "100%",
+              marginTop: "0.25rem",
+              padding: "0.5rem 0.75rem",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+              fontSize: "0.875rem",
+              resize: "vertical",
+              fontFamily: "inherit",
+            }}
+          />
         </div>
       </header>
 
