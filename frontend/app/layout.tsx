@@ -3,8 +3,8 @@ import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 
 export const metadata: Metadata = {
-  title: "Web Service",
-  description: "Minimum web service",
+  title: { default: "CommonCents", template: "%s | CommonCents" },
+  description: "CommonCents - Stock research and analysis",
 };
 
 export default function RootLayout({

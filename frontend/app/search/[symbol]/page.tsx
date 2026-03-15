@@ -63,6 +63,8 @@ export default function SearchPage() {
   const [loadingChart, setLoadingChart] = useState(true);
   const [loadingQualitative, setLoadingQualitative] = useState(true);
   const [loadingQuantitative, setLoadingQuantitative] = useState(true);
+  const [loadingRating, setLoadingRating] = useState(false);
+  const [rating, setRating] = useState<{ score: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const base = API_URL.replace(/\/$/, "");
@@ -75,7 +77,7 @@ export default function SearchPage() {
     companyName ? `Company: ${companyName}` : "",
     analysis?.latest_price != null ? `Latest price: $${analysis.latest_price.toFixed(2)}` : "",
     analysis?.signal ? `Analysis signal: ${analysis.signal}` : "",
-    analysis?.score != null ? `Stock rating: ${analysis.score}/10` : "",
+    rating?.score != null ? `Stock rating: ${rating.score}/10` : "",
     quantitative?.quantitative_summary
       ? `\n## Quantitative Summary\n${quantitative.quantitative_summary}`
       : "",
@@ -101,6 +103,7 @@ export default function SearchPage() {
     setLoadingChart(true);
     setLoadingQualitative(true);
     setLoadingQuantitative(true);
+    setRating(null);
     setError(null);
 
     const loadAllHistory = async () => {
@@ -279,6 +282,61 @@ export default function SearchPage() {
     };
   }, [symbol, base, mode]);
 
+  // Request rating ONLY after both qualitative and quantitative streams have completed
+  const ratingRequestedRef = useRef(false);
+  useEffect(() => {
+    ratingRequestedRef.current = false;
+  }, [symbol]);
+
+  useEffect(() => {
+    if (
+      !base ||
+      base === "undefined" ||
+      loadingQualitative ||
+      loadingQuantitative ||
+      !qualitative?.qualitative_summary ||
+      !quantitative?.quantitative_summary ||
+      ratingRequestedRef.current
+    ) {
+      return;
+    }
+    ratingRequestedRef.current = true;
+    setLoadingRating(true);
+    fetch(
+      `${base}/api/stocks/rating/${encodeURIComponent(symbol)}?provider=chatgpt&mode=${mode}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          qualitative_summary: qualitative.qualitative_summary,
+          quantitative_summary: quantitative.quantitative_summary,
+          headlines: qualitative.headlines || [],
+          latest_price: analysis?.latest_price ?? undefined,
+        }),
+      }
+    )
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data?.score != null) {
+          setRating({ score: data.score });
+        } else if (!res.ok && data?.detail) {
+          console.warn("Rating request failed:", data.detail);
+        }
+        return null;
+      })
+      .finally(() => setLoadingRating(false));
+  }, [
+    symbol,
+    base,
+    mode,
+    loadingQualitative,
+    loadingQuantitative,
+    qualitative?.qualitative_summary,
+    qualitative?.headlines,
+    quantitative?.quantitative_summary,
+    analysis?.latest_price,
+  ]);
+
   const handleRangeChange = (range: (typeof RANGES)[number]) => {
     setYears(range);
   };
@@ -301,6 +359,7 @@ export default function SearchPage() {
           maxWidth: "64rem",
           margin: "0 auto",
           padding: "1.5rem",
+          paddingBottom: "3rem",
         }}
       >
       <header style={{ marginBottom: "1.5rem" }}>
@@ -378,7 +437,7 @@ export default function SearchPage() {
                 </button>
               ))}
               </div>
-              {analysis?.score != null && (
+              {(loadingRating || rating?.score != null) && (
                 <div
                   style={{
                     display: "flex",
@@ -391,25 +450,31 @@ export default function SearchPage() {
                     boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
                   }}
                 >
-                  <span style={{ fontSize: "1.875rem" }} aria-label={`${analysis.score} out of 10`}>
-                    {[1, 2, 3, 4, 5].map((i) => {
-                      const filledCount = Math.round((analysis!.score! / 10) * 5);
-                      const isFilled = i <= filledCount;
-                      return (
-                        <span
-                          key={i}
-                          style={{
-                            color: isFilled ? getStarRatingColor(filledCount) : "#94a3b8",
-                          }}
-                        >
-                          ★
-                        </span>
-                      );
-                    })}
-                  </span>
-                  <span style={{ fontSize: "0.875rem", color: "#475569", fontWeight: 500 }}>
-                    {analysis.score}/10
-                  </span>
+                  {loadingRating ? (
+                    <span style={{ fontSize: "0.875rem", color: "#64748b" }}>Rating…</span>
+                  ) : rating?.score != null ? (
+                    <>
+                      <span style={{ fontSize: "1.875rem" }} aria-label={`${rating.score} out of 10`}>
+                        {[1, 2, 3, 4, 5].map((i) => {
+                          const filledCount = Math.round((rating!.score! / 10) * 5);
+                          const isFilled = i <= filledCount;
+                          return (
+                            <span
+                              key={i}
+                              style={{
+                                color: isFilled ? getStarRatingColor(filledCount) : "#94a3b8",
+                              }}
+                            >
+                              ★
+                            </span>
+                          );
+                        })}
+                      </span>
+                      <span style={{ fontSize: "0.875rem", color: "#475569", fontWeight: 500 }}>
+                        {rating.score}/10
+                      </span>
+                    </>
+                  ) : null}
                 </div>
               )}
             </div>

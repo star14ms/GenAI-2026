@@ -76,7 +76,7 @@ export default function Home() {
         alignItems: "center",
         justifyContent: "center",
         padding: "2rem",
-        background: "linear-gradient(180deg, #ffedd5 0%, #fdba74 50%, #e2e8f0 100%)",
+        background: "linear-gradient(180deg, #ffedd5 0%,rgb(255, 200, 142) 50%, #e2e8f0 100%)",
       }}
     >
       <div
@@ -95,7 +95,7 @@ export default function Home() {
             letterSpacing: "-0.025em",
           }}
         >
-          Stock Search
+          Common<span style={{ color: "var(--color-primary)" }}>Cents</span>
         </h1>
         <p
           style={{

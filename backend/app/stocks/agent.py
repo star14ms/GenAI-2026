@@ -562,3 +562,173 @@ def generate_quantitative_summary_stream(
     else:
         text = provider.chat([ChatMessage(role="user", content=quant_prompt)])
         yield text
+
+
+def _fetch_url_text(url: str, timeout: float = 8, max_chars: int = 8000) -> str | None:
+    """Fetch a URL and extract plain text from HTML. Returns None on failure."""
+    if not url or not url.startswith(("http://", "https://")):
+        return None
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; GenAI-2026/1.0; +https://github.com)"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            chunk = resp.read(200_000)
+    except Exception:
+        return None
+    html = chunk.decode("utf-8", errors="ignore")
+    # Strip script/style and basic tag removal for text extraction
+    html = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", html, flags=re.IGNORECASE)
+    html = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", html, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > max_chars:
+        text = text[:max_chars] + "..."
+    return text if text else None
+
+
+def _build_rating_prompt(
+    symbol: str,
+    qualitative_summary: str,
+    quantitative_summary: str,
+    headlines: list[dict],
+    news_content: list[dict],
+    latest_price: float | None,
+    mode: str,
+) -> str:
+    """Build the rating prompt with all outputs from quantitative/qualitative summaries and news."""
+    normalized_mode = _normalize_mode(mode)
+    news_section = ""
+    if news_content:
+        parts = []
+        for item in news_content:
+            title = item.get("title", "Article")
+            link = item.get("link", "")
+            content = item.get("fetched_content")
+            if content:
+                parts.append(f"### {title}\nURL: {link}\nContent excerpt:\n{content}\n")
+            else:
+                parts.append(f"### {title}\nURL: {link}\n(Content could not be fetched)\n")
+        news_section = "\n## Recent News (with content)\n" + "\n".join(parts)
+    elif headlines:
+        news_section = (
+            "\n## Recent News (headlines only)\n"
+            + "\n".join(
+                f"- {h.get('title', 'Article')} ({h.get('link', '')})"
+                for h in headlines
+            )
+        )
+
+    price_line = f"\nLatest price: ${latest_price:.2f}" if latest_price is not None else ""
+
+    if normalized_mode == "expert":
+        return (
+            "You are a stock strategist producing a single overall rating. Use ONLY the provided context.\n\n"
+            "## Quantitative Summary\n"
+            f"{quantitative_summary or 'Not available.'}\n\n"
+            "## Qualitative Summary\n"
+            f"{qualitative_summary or 'Not available.'}\n"
+            f"{news_section}\n"
+            f"{price_line}\n\n"
+            "TASK: Produce a stock rating from 0 to 10 (0=avoid, 10=strong buy) based on the quantitative signals, "
+            "qualitative narrative, and news context above. Output valid JSON only: {\"score\": <float 0-10>, \"reasoning\": \"<2-3 sentences>\"}.\n"
+            "Rules: One decimal for score. Do not invent facts. End with valid JSON. Not financial advice."
+        )
+    return (
+        "You are a stock analyst producing a simple rating for a beginner. Use ONLY the provided context.\n\n"
+        "## Quantitative Summary\n"
+        f"{quantitative_summary or 'Not available.'}\n\n"
+        "## Qualitative Summary\n"
+        f"{qualitative_summary or 'Not available.'}\n"
+        f"{news_section}\n"
+        f"{price_line}\n\n"
+        "TASK: Produce a stock rating from 0 to 10 (0=avoid, 10=strong buy) based on the summaries and news above. "
+        "Output valid JSON only: {\"score\": <float 0-10>, \"reasoning\": \"<1-2 short sentences>\"}.\n"
+        "Rules: One decimal for score. Plain language. Do not invent facts. End with valid JSON. Not financial advice."
+    )
+
+
+def generate_stock_rating(
+    symbol: str,
+    qualitative_summary: str,
+    quantitative_summary: str,
+    headlines: list[dict],
+    provider_id: str = "chatgpt",
+    mode: str = "beginner",
+    latest_price: float | None = None,
+) -> dict:
+    """
+    Generate an LLM-based stock rating (0-10) using all outputs from quantitative/qualitative summaries
+    and news. Fetches content from news links and uses web_search when available.
+    Call this ONLY after qualitative and quantitative streams have completed.
+    """
+    clean_symbol = symbol.strip().upper()
+    provider = get_provider(provider_id)
+    if not provider:
+        raise ValueError("Unknown provider. Available: gemini, claude, chatgpt")
+
+    # Fetch content from news links in parallel
+    news_content: list[dict] = []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {}
+        for h in headlines or []:
+            link = h.get("link")
+            if link:
+                futures[ex.submit(_fetch_url_text, link)] = h
+        for fut in as_completed(futures, timeout=20):
+            try:
+                h = futures[fut]
+                content = fut.result()
+                news_content.append({**h, "fetched_content": content})
+            except Exception:
+                pass
+    # Preserve order and include headlines we couldn't fetch
+    seen_links = {n.get("link") for n in news_content}
+    for h in headlines or []:
+        if h.get("link") and h.get("link") not in seen_links:
+            news_content.append({**h, "fetched_content": None})
+            seen_links.add(h.get("link"))
+
+    prompt = _build_rating_prompt(
+        symbol=clean_symbol,
+        qualitative_summary=qualitative_summary,
+        quantitative_summary=quantitative_summary,
+        headlines=headlines or [],
+        news_content=news_content,
+        latest_price=latest_price,
+        mode=mode,
+    )
+
+    # Do not use web_search - vLLM and other OpenAI-compatible backends expect
+    # type: "function" tools, not type: "web_search". News content is already
+    # fetched from URLs and included in the prompt.
+    raw = provider.chat([ChatMessage(role="user", content=prompt)])
+
+    # Parse JSON from response
+    score = None
+    reasoning = ""
+    try:
+        start = raw.find("{")
+        if start >= 0:
+            depth = 0
+            for i, c in enumerate(raw[start:], start):
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        obj = json.loads(raw[start : i + 1])
+                        score = float(obj.get("score", 0))
+                        score = max(0.0, min(10.0, round(score, 1)))
+                        reasoning = str(obj.get("reasoning", ""))[:500]
+                        break
+    except Exception:
+        pass
+
+    return {
+        "symbol": clean_symbol,
+        "score": score,
+        "reasoning": reasoning,
+        "provider": provider.id,
+    }

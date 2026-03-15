@@ -1,6 +1,6 @@
-# Minimum Web Service
+# CommonCents
 
-A minimal full-stack web service with Next.js (Vercel) and FastAPI (AWS Lambda).
+A full-stack stock research and analysis app with Next.js (Vercel) and FastAPI (AWS Lambda).
 
 ## Project Structure
 

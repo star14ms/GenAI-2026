@@ -1,6 +1,31 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: Minimum web service backend - FastAPI on Lambda
+Description: CommonCents backend - FastAPI on Lambda (env params)
+
+Parameters:
+  OpenAiApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: OpenAI API key for chat (or HuggingFace token). Pass via --parameter-overrides to enable.
+  OpenAiBaseUrl:
+    Type: String
+    Default: ""
+    Description: Optional. Override OpenAI base URL (e.g. HuggingFace endpoint).
+  OpenAiModel:
+    Type: String
+    Default: ""
+    Description: Optional. Override model (e.g. openai/gpt-oss-120b).
+  AlpacaApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Alpaca API key for stock data. Leave empty to disable stock analysis.
+  AlpacaSecretKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Alpaca secret key for stock data.
 
 Globals:
   Function:
@@ -29,6 +54,11 @@ Resources:
       Environment:
         Variables:
           NUMBA_CACHE_DIR: /tmp
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+          OPENAI_BASE_URL: !Ref OpenAiBaseUrl
+          OPENAI_MODEL: !Ref OpenAiModel
+          ALPACA_API_KEY: !Ref AlpacaApiKey
+          ALPACA_SECRET_KEY: !Ref AlpacaSecretKey
       Events:
         ApiEvent:
           Type: HttpApi

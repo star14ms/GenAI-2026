@@ -115,7 +115,7 @@ export default function TestHome() {
   return (
     <main style={{ padding: "2rem", maxWidth: "40rem", margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
-        <h1 style={{ margin: 0 }}>Web Service (Test)</h1>
+        <h1 style={{ margin: 0 }}>CommonCents (Test)</h1>
         {supabase && (
           authLoading ? (
             <span style={{ fontSize: "0.875rem", color: "#666" }}>Loading auth…</span>

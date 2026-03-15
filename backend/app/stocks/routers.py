@@ -1,12 +1,18 @@
 import json
+import logging
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+
+logger = logging.getLogger(__name__)
+from fastapi import APIRouter, HTTPException, Body
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from .base import data_client
 from .agent import (
     generate_qualitative_summary,
     generate_qualitative_summary_stream,
     generate_quantitative_summary,
     generate_quantitative_summary_stream,
+    generate_stock_rating,
 )
 from .model import get_stock_features, get_historical_price_series
 from .predict import train_linear_model, predict_next_close
@@ -51,6 +57,12 @@ def get_qualitative_summary(
     if news_limit < 3 or news_limit > 15:
         raise HTTPException(status_code=400, detail="news_limit must be between 3 and 15.")
 
+    if data_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ALPACA_API_KEY and ALPACA_SECRET_KEY must be set in environment to use this feature.",
+        )
+
     try:
         result = generate_qualitative_summary(
             clean_symbol,
@@ -80,6 +92,12 @@ def stream_qualitative_summary(
 
     if news_limit < 3 or news_limit > 15:
         raise HTTPException(status_code=400, detail="news_limit must be between 3 and 15.")
+
+    if data_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ALPACA_API_KEY and ALPACA_SECRET_KEY must be set in environment to use this feature.",
+        )
 
     def generate():
         stream = generate_qualitative_summary_stream(
@@ -118,6 +136,12 @@ def get_quantitative_summary(
     if days < 60 or days > 365:
         raise HTTPException(status_code=400, detail="Days must be between 60 and 365.")
 
+    if data_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ALPACA_API_KEY and ALPACA_SECRET_KEY must be set in environment to use this feature.",
+        )
+
     try:
         result = generate_quantitative_summary(
             clean_symbol,
@@ -148,6 +172,12 @@ def stream_quantitative_summary(
     if days < 60 or days > 365:
         raise HTTPException(status_code=400, detail="Days must be between 60 and 365.")
 
+    if data_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ALPACA_API_KEY and ALPACA_SECRET_KEY must be set in environment to use this feature.",
+        )
+
     def generate():
         for chunk in generate_quantitative_summary_stream(
             clean_symbol,
@@ -162,6 +192,51 @@ def stream_quantitative_summary(
         media_type="text/plain; charset=utf-8",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class RatingRequest(BaseModel):
+    qualitative_summary: str = ""
+    quantitative_summary: str = ""
+    headlines: list[dict] = []
+    latest_price: float | None = None
+
+
+@router.post("/api/stocks/rating/{symbol}")
+def post_stock_rating(
+    symbol: str,
+    body: RatingRequest | None = Body(default=None),
+    provider: str = "chatgpt",
+    mode: str = "beginner",
+):
+    """
+    Generate LLM-based stock rating (0-10). Call this ONLY after qualitative and
+    quantitative summary streams have completed. Uses all outputs plus web search
+    for news links.
+    """
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol or not clean_symbol.isalpha() or len(clean_symbol) > 5:
+        raise HTTPException(status_code=400, detail="Invalid stock symbol. Must be 1-5 alphabetic characters.")
+
+    req = body or RatingRequest()
+
+    try:
+        result = generate_stock_rating(
+            symbol=clean_symbol,
+            qualitative_summary=req.qualitative_summary or "",
+            quantitative_summary=req.quantitative_summary or "",
+            headlines=req.headlines or [],
+            provider_id=provider,
+            mode=mode,
+            latest_price=req.latest_price,
+        )
+    except ValueError as e:
+        logger.warning("Stock rating ValueError: %s", e)
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Stock rating error")
+        raise HTTPException(status_code=500, detail=f"Error generating rating: {str(e)}")
+
+    return result
 
 
 @router.get("/analysis/{symbol}")
