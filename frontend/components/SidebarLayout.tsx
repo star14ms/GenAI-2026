@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSidebar } from "@/contexts/SidebarContext";
 import { getSearchHistory, deleteSearchHistoryEntry, type SearchHistoryEntry } from "@/lib/searchHistory";
@@ -18,7 +19,8 @@ function formatHistoryDate(dateStr: string): string {
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading, signingIn, signInWithGoogle, signOut } = useAuth();
-  const { sidebarOpen, setSidebarOpen } = useSidebar();
+  const { sidebarOpen, setSidebarOpen, historyRefreshKey } = useSidebar();
+  const pathname = usePathname();
   const [history, setHistory] = useState<SearchHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -32,7 +34,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
       setHistoryLoading(false);
       if (!error && data) setHistory(data);
     });
-  }, [user?.id]);
+  }, [user?.id, pathname, sidebarOpen, historyRefreshKey]);
 
   const handleDeleteHistory = async (e: React.MouseEvent, id: string) => {
     e.preventDefault();
@@ -132,7 +134,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                   gap: "0.5rem",
                 }}
               >
-                {history.slice(0, 3).map((entry) => (
+                {history.map((entry) => (
                   <li key={entry.id}>
                     <div
                       style={{

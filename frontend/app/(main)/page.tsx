@@ -99,7 +99,7 @@ export default function Home() {
             Common<span style={{ color: "var(--color-primary)" }}>Cents</span>
           </h1>
           <p style={{ fontSize: "1rem", color: "#64748b", marginBottom: "2.5rem" }}>
-            Search by company name or symbol (e.g. Apple, AAPL, Microsoft)
+            Search by company name or symbol (e.g. Apple, AAPL, TSM, SPY)
           </p>
 
           <form onSubmit={handleSearch} style={{ width: "100%" }}>

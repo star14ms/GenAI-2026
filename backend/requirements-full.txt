@@ -7,6 +7,5 @@ google-genai
 anthropic
 openai
 alpaca-py
-pandas-ta
 pytz
 yfinance

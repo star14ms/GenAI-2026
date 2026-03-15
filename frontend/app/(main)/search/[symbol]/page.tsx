@@ -8,6 +8,7 @@ import StockChart, { RANGES } from "@/components/StockChart";
 import DetailChatbot from "@/components/DetailChatbot";
 import { getCompanyName } from "@/lib/stocks";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSidebar } from "@/contexts/SidebarContext";
 import { saveSearchHistory } from "@/lib/searchHistory";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
@@ -56,6 +57,7 @@ export default function SearchPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const { refreshHistory } = useSidebar();
   const symbol = (params?.symbol as string)?.toUpperCase() || "";
   const mode = (searchParams?.get("mode") || "beginner").toLowerCase() === "expert" ? "expert" : "beginner";
   const [years, setYears] = useState<(typeof RANGES)[number]>(1);
@@ -134,7 +136,7 @@ export default function SearchPage() {
       }
       setPointsByRange(byRange);
       if (results.every((r) => r.points.length === 0)) {
-        setError("Failed to load stock data");
+        setError("No result found");
       }
     };
     loadAllHistory().finally(() => setLoadingChart(false));
@@ -379,7 +381,9 @@ export default function SearchPage() {
       qualitative,
       quantitative,
       rating,
-    }).catch(() => {});
+    })
+      .then(() => refreshHistory())
+      .catch(() => {});
   }, [
     user?.id,
     symbol,
@@ -394,6 +398,7 @@ export default function SearchPage() {
     qualitative,
     quantitative,
     rating,
+    refreshHistory,
   ]);
 
   const handleRangeChange = (range: (typeof RANGES)[number]) => {
@@ -447,20 +452,46 @@ export default function SearchPage() {
         )}
       </header>
 
-      {error && (
+      {error && !loadingChart && (
         <div
           style={{
-            background: "#fee2e2",
-            color: "#991b1b",
-            borderRadius: "8px",
-            padding: "0.75rem",
-            marginBottom: "1rem",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "24rem",
+            padding: "3rem 2rem",
+            background: "#f8fafc",
+            borderRadius: "12px",
+            border: "1px solid #e2e8f0",
+            textAlign: "center",
           }}
         >
-          {error}
+          <p style={{ fontSize: "1.25rem", color: "#64748b", margin: "0 0 0.5rem 0", fontWeight: 500 }}>
+            No result found for &quot;{symbol}&quot;
+          </p>
+          <p style={{ fontSize: "0.9375rem", color: "#94a3b8", margin: "0 0 1.5rem 0" }}>
+            This symbol may not exist or data is unavailable. Try another search.
+          </p>
+          <Link
+            href="/"
+            className="link-hover-underline"
+            style={{
+              padding: "0.5rem 1rem",
+              borderRadius: "8px",
+              background: "var(--color-primary)",
+              color: "#fff",
+              fontSize: "0.9375rem",
+              textDecoration: "none",
+            }}
+          >
+            ← Back to search
+          </Link>
         </div>
       )}
 
+      {!error && (
+      <>
       {/* Section 1: Chart - fixed position */}
       <section style={{ marginBottom: "2rem", minHeight: "22rem" }}>
         {loadingChart ? (
@@ -670,6 +701,8 @@ export default function SearchPage() {
         fullPageContext={fullPageContext}
         selectableRef={searchResultRef}
       />
+      </>
+      )}
     </main>
     </div>
   );

@@ -1,6 +1,6 @@
 # CommonCents
 
-A full-stack stock research and analysis app with Next.js (Vercel) and FastAPI (AWS Lambda).
+A full-stack stock research and analysis app with Next.js (Vercel) and FastAPI (AWS Lambda). Built with **vibe coding**—AI-assisted development where natural-language specs meet conversational refinement.
 
 ## Project Structure
 

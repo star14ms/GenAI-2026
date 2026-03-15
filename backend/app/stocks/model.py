@@ -1,5 +1,4 @@
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
 import yfinance as yf
 from alpaca.data.requests import StockBarsRequest
@@ -85,6 +84,80 @@ def _fetch_yahoo_metrics(symbol: str) -> dict:
     return out
 
 
+def _sma(series: pd.Series, length: int) -> pd.Series:
+    """Simple moving average."""
+    return series.rolling(window=length, min_periods=1).mean()
+
+
+def _ema(series: pd.Series, length: int) -> pd.Series:
+    """Exponential moving average."""
+    return series.ewm(span=length, adjust=False).mean()
+
+
+def _rsi(series: pd.Series, length: int = 14) -> pd.Series:
+    """Relative Strength Index."""
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta).where(delta < 0, 0.0)
+    avg_gain = gain.rolling(window=length, min_periods=length).mean()
+    avg_loss = loss.rolling(window=length, min_periods=length).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
+
+def _macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> dict:
+    """MACD, signal line, and histogram."""
+    ema_fast = _ema(series, fast)
+    ema_slow = _ema(series, slow)
+    macd_line = ema_fast - ema_slow
+    macd_signal = _ema(macd_line, signal)
+    macd_hist = macd_line - macd_signal
+    return {"MACD": macd_line, "MACDs": macd_signal, "MACDh": macd_hist}
+
+
+def _bbands(series: pd.Series, length: int = 20, std: float = 2.0) -> dict:
+    """Bollinger Bands."""
+    middle = _sma(series, length)
+    std_dev = series.rolling(window=length, min_periods=length).std()
+    upper = middle + std_dev * std
+    lower = middle - std_dev * std
+    return {"BBM_20_2.0": middle, "BBU_20_2.0": upper, "BBL_20_2.0": lower}
+
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, length: int = 14) -> pd.Series:
+    """Average True Range."""
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.rolling(window=length, min_periods=length).mean()
+
+
+def _stoch(high: pd.Series, low: pd.Series, close: pd.Series, k: int = 14, d: int = 3) -> dict:
+    """Stochastic Oscillator."""
+    lowest = low.rolling(window=k, min_periods=k).min()
+    highest = high.rolling(window=k, min_periods=k).max()
+    stoch_k = 100 * (close - lowest) / (highest - lowest).replace(0, np.nan)
+    stoch_d = _sma(stoch_k, d)
+    return {"STOCHk_14_3_3": stoch_k, "STOCHd_14_3_3": stoch_d}
+
+
+def _willr(high: pd.Series, low: pd.Series, close: pd.Series, length: int = 14) -> pd.Series:
+    """Williams %R."""
+    highest = high.rolling(window=length, min_periods=length).max()
+    lowest = low.rolling(window=length, min_periods=length).min()
+    return -100 * (highest - close) / (highest - lowest).replace(0, np.nan)
+
+
+def _obv(close: pd.Series, volume: pd.Series) -> pd.Series:
+    """On-Balance Volume."""
+    direction = np.sign(close.diff())
+    direction.iloc[0] = 0
+    return (direction * volume).cumsum()
+
+
 def get_stock_features(symbol: str, days: int = 365) -> pd.DataFrame:
     """
     Fetch stock data and calculate features for ML model to predict price.
@@ -123,30 +196,30 @@ def get_stock_features(symbol: str, days: int = 365) -> pd.DataFrame:
     df['log_returns'] = np.log(df['close']).diff()
     
     # Volume features
-    df['volume_sma_20'] = ta.sma(df['volume'], length=20)
+    df['volume_sma_20'] = _sma(df['volume'], 20)
     df['volume_ratio'] = df['volume'] / df['volume_sma_20']
     
     # Trend indicators
     try:
-        df['SMA_10'] = ta.sma(df['close'], length=min(10, len(df)))
-        df['SMA_20'] = ta.sma(df['close'], length=min(20, len(df)))
-        df['SMA_50'] = ta.sma(df['close'], length=min(50, len(df)))
-        df['EMA_12'] = ta.ema(df['close'], length=min(12, len(df)))
-        df['EMA_26'] = ta.ema(df['close'], length=min(26, len(df)))
+        df['SMA_10'] = _sma(df['close'], min(10, len(df)))
+        df['SMA_20'] = _sma(df['close'], min(20, len(df)))
+        df['SMA_50'] = _sma(df['close'], min(50, len(df)))
+        df['EMA_12'] = _ema(df['close'], min(12, len(df)))
+        df['EMA_26'] = _ema(df['close'], min(26, len(df)))
     except Exception:
         pass  # Skip if calculation fails
     
     # Momentum indicators
     try:
-        df['RSI'] = ta.rsi(df['close'], length=14)
-        df['RSI_7'] = ta.rsi(df['close'], length=7)
-        df['RSI_21'] = ta.rsi(df['close'], length=21)
+        df['RSI'] = _rsi(df['close'], 14)
+        df['RSI_7'] = _rsi(df['close'], 7)
+        df['RSI_21'] = _rsi(df['close'], 21)
     except Exception:
         pass
     
     # MACD
     try:
-        macd = ta.macd(df['close'])
+        macd = _macd(df['close'])
         if macd is not None:
             df['MACD'] = macd['MACD']
             df['MACD_signal'] = macd['MACDs']
@@ -156,7 +229,7 @@ def get_stock_features(symbol: str, days: int = 365) -> pd.DataFrame:
     
     # Bollinger Bands
     try:
-        bb = ta.bbands(df['close'], length=20)
+        bb = _bbands(df['close'], 20)
         if bb is not None:
             df['BB_upper'] = bb['BBU_20_2.0']
             df['BB_middle'] = bb['BBM_20_2.0']
@@ -167,14 +240,14 @@ def get_stock_features(symbol: str, days: int = 365) -> pd.DataFrame:
     
     # Volatility
     try:
-        df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        df['ATR'] = _atr(df['high'], df['low'], df['close'], 14)
         df['volatility'] = df['returns'].rolling(20).std()
     except Exception:
         pass
     
     # Stochastic Oscillator
     try:
-        stoch = ta.stoch(df['high'], df['low'], df['close'])
+        stoch = _stoch(df['high'], df['low'], df['close'])
         if stoch is not None:
             df['stoch_k'] = stoch['STOCHk_14_3_3']
             df['stoch_d'] = stoch['STOCHd_14_3_3']
@@ -183,13 +256,13 @@ def get_stock_features(symbol: str, days: int = 365) -> pd.DataFrame:
     
     # Williams %R
     try:
-        df['williams_r'] = ta.willr(df['high'], df['low'], df['close'], length=14)
+        df['williams_r'] = _willr(df['high'], df['low'], df['close'], 14)
     except Exception:
         pass
     
     # On-Balance Volume
     try:
-        df['obv'] = ta.obv(df['close'], df['volume'])
+        df['obv'] = _obv(df['close'], df['volume'])
     except Exception:
         pass
     
