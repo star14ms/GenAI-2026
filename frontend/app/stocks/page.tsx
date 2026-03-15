@@ -140,7 +140,7 @@ export default function StocksPage() {
             cursor: loading ? "not-allowed" : "pointer",
           }}
         >
-          Visualize (Enter)
+          Visualize
         </button>
 
         {RANGES.map((range) => (

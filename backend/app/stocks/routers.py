@@ -5,6 +5,7 @@ from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
 import pytz
+from .agent import generate_qualitative_summary, generate_quantitative_summary
 from .model import get_stock_features, get_historical_price_series
 from .predict import train_linear_model, predict_next_close
 
@@ -32,6 +33,60 @@ def get_stock_history(symbol: str, years: int = 1):
         "years": years,
         "points": points,
     }
+
+
+@router.get("/api/stocks/qualitative-summary/{symbol}")
+def get_qualitative_summary(
+    symbol: str,
+    provider: str = "chatgpt",
+    news_limit: int = 8,
+):
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol or not clean_symbol.isalpha() or len(clean_symbol) > 5:
+        raise HTTPException(status_code=400, detail="Invalid stock symbol. Must be 1-5 alphabetic characters.")
+
+    if news_limit < 3 or news_limit > 15:
+        raise HTTPException(status_code=400, detail="news_limit must be between 3 and 15.")
+
+    try:
+        result = generate_qualitative_summary(
+            clean_symbol,
+            provider_id=provider,
+            news_limit=news_limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating qualitative summary: {str(e)}")
+
+    return result
+
+
+@router.get("/api/stocks/quantitative-summary/{symbol}")
+def get_quantitative_summary(
+    symbol: str,
+    provider: str = "chatgpt",
+    days: int = 252,
+):
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol or not clean_symbol.isalpha() or len(clean_symbol) > 5:
+        raise HTTPException(status_code=400, detail="Invalid stock symbol. Must be 1-5 alphabetic characters.")
+
+    if days < 60 or days > 365:
+        raise HTTPException(status_code=400, detail="Days must be between 60 and 365.")
+
+    try:
+        result = generate_quantitative_summary(
+            clean_symbol,
+            provider_id=provider,
+            days=days,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating quantitative summary: {str(e)}")
+
+    return result
 
 @router.get("/analysis/{symbol}")
 def get_stock_analysis(symbol: str, days: int = 30):
