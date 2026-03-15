@@ -1,3 +1,10 @@
+:root {
+  --color-primary: #f97316;
+  --color-primary-hover: #ea580c;
+  --color-primary-light: #ffedd5;
+  --color-primary-muted: #fdba74;
+}
+
 * {
   box-sizing: border-box;
   padding: 0;
@@ -46,7 +53,7 @@ body {
 }
 .markdown-content strong { font-weight: 600; }
 .markdown-content a {
-  color: #2563eb;
+  color: var(--color-primary);
   text-decoration: none;
 }
 .markdown-content a:hover {
@@ -59,3 +66,4 @@ a.link-hover-underline {
 a.link-hover-underline:hover {
   text-decoration: underline;
 }
+
