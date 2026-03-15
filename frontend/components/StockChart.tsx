@@ -11,7 +11,7 @@ const CHART_WIDTH = 900;
 const CHART_HEIGHT = 300;
 const PAD_LEFT = 60;
 const PAD_RIGHT = 90;
-const PAD_TOP = 40;
+const PAD_TOP = 0;
 const PAD_BOTTOM = 60;
 const PLOT_WIDTH = CHART_WIDTH - PAD_LEFT - PAD_RIGHT;
 const PLOT_HEIGHT = CHART_HEIGHT - PAD_TOP - PAD_BOTTOM;
@@ -68,7 +68,11 @@ export default function StockChart({ points, years, height = "20rem" }: StockCha
   const values = points.map((p) => p.close ?? 0);
   const minVal = Math.min(...values);
   const maxVal = Math.max(...values);
-  const range = Math.max(maxVal - minVal, 1);
+  const dataRange = Math.max(maxVal - minVal, 1);
+  const yPadding = dataRange * 0.08; // 15% padding top/bottom so min tick doesn't overlap x-axis
+  const plotMin = minVal - yPadding;
+  const plotMax = maxVal + yPadding;
+  const range = plotMax - plotMin;
   const lastVal = points[points.length - 1]?.close ?? 0;
 
   const minIdx = values.indexOf(minVal);
@@ -78,14 +82,14 @@ export default function StockChart({ points, years, height = "20rem" }: StockCha
   const xScale = (i: number) =>
     PAD_LEFT + (i / Math.max(points.length - 1, 1)) * PLOT_WIDTH;
   const yScale = (v: number) =>
-    PAD_TOP + PLOT_HEIGHT - ((v - minVal) / range) * PLOT_HEIGHT;
+    PAD_TOP + PLOT_HEIGHT - ((v - plotMin) / range) * PLOT_HEIGHT;
 
   const polyline = points
     .map((p, i) => `${xScale(i)},${yScale(p.close ?? minVal)}`)
     .join(" ");
 
   const xTicks = getXTickIndices(points.length, years);
-  const yTicks = getYTickValues(minVal, maxVal, 5);
+  const yTicks = getYTickValues(plotMin, plotMax, 5);
 
   const LABEL_RIGHT_EXTRA = 70;
   const svgWidth = CHART_WIDTH + LABEL_RIGHT_EXTRA;
@@ -103,6 +107,7 @@ export default function StockChart({ points, years, height = "20rem" }: StockCha
     >
       <svg
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+        preserveAspectRatio="xMidYMax meet"
         style={{ width: "100%", height, display: "block" }}
         role="img"
         aria-label="Historical stock close price chart"
@@ -145,8 +150,9 @@ export default function StockChart({ points, years, height = "20rem" }: StockCha
               <text
                 key={i}
                 x={x}
-                y={PAD_TOP + PLOT_HEIGHT + 20}
+                y={PAD_TOP + PLOT_HEIGHT + 48}
                 textAnchor="middle"
+                dominantBaseline="hanging"
                 fontSize="11"
                 fill="#64748b"
               >
