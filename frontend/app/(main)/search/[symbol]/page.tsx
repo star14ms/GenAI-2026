@@ -13,6 +13,53 @@ import { saveSearchHistory } from "@/lib/searchHistory";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
+/** Progressively reveals text when receiving large chunks (simulates streaming when backend buffers). */
+function useRevealedText(fullText: string, chunkSize = 20, intervalMs = 20): string {
+  const [displayed, setDisplayed] = useState("");
+  const positionRef = useRef(0);
+  const prevFullRef = useRef("");
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (fullText === prevFullRef.current) return;
+    const prev = prevFullRef.current;
+    prevFullRef.current = fullText;
+
+    if (fullText.length <= prev.length) {
+      setDisplayed(fullText);
+      positionRef.current = fullText.length;
+      return;
+    }
+    const added = fullText.length - prev.length;
+    if (added <= chunkSize) {
+      setDisplayed(fullText);
+      positionRef.current = fullText.length;
+      return;
+    }
+    positionRef.current = prev.length;
+    let pos = positionRef.current;
+    const target = fullText.length;
+
+    const tick = () => {
+      pos += chunkSize;
+      if (pos >= target) {
+        setDisplayed(fullText);
+        positionRef.current = target;
+        return;
+      }
+      setDisplayed(fullText.slice(0, pos));
+      positionRef.current = pos;
+      timeoutRef.current = setTimeout(tick, intervalMs);
+    };
+    timeoutRef.current = setTimeout(tick, intervalMs);
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [fullText, chunkSize, intervalMs]);
+
+  return displayed || fullText;
+}
+
 function getStarRatingColor(filledCount: number): string {
   if (filledCount <= 0) return "#cbd5e1";
   if (filledCount <= 1) return "#f87171"; // red-400
@@ -78,6 +125,9 @@ export default function SearchPage() {
   const points = pointsByRange[years] ?? [];
   const companyName = getCompanyName(symbol);
   const searchResultRef = useRef<HTMLDivElement>(null);
+
+  const qualRevealed = useRevealedText(qualitative?.qualitative_summary ?? "", 25, 18);
+  const quantRevealed = useRevealedText(quantitative?.quantitative_summary ?? "", 25, 18);
 
   const fullPageContext = [
     `Symbol: ${symbol}`,
@@ -594,7 +644,7 @@ export default function SearchPage() {
               <div style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minHeight: 0, overflow: "auto" }}>
                 <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem", color: "#334155" }}>Quantitative Summary</h2>
                 <div className="markdown-content" style={{ fontSize: "0.9375rem", lineHeight: 1.6, color: "#475569" }}>
-                  <ReactMarkdown>{quantitative.quantitative_summary}</ReactMarkdown>
+                  <ReactMarkdown>{quantRevealed}</ReactMarkdown>
                 </div>
               </div>
             ) : (
@@ -618,7 +668,7 @@ export default function SearchPage() {
               <div style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minHeight: 0, overflow: "auto" }}>
                 <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem", color: "#334155" }}>Qualitative Summary</h2>
                 <div className="markdown-content" style={{ fontSize: "0.9375rem", lineHeight: 1.6, color: "#475569" }}>
-                  <ReactMarkdown>{qualitative.qualitative_summary}</ReactMarkdown>
+                  <ReactMarkdown>{qualRevealed}</ReactMarkdown>
                 </div>
               </div>
             ) : (
