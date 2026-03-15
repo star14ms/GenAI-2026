@@ -2,7 +2,10 @@
 
 import { useState, useRef, useEffect, type RefObject } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { useRevealedText } from "@/hooks/useRevealedText";
+import MermaidCodeBlock from "@/components/MermaidCodeBlock";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -20,7 +23,34 @@ interface DetailChatbotProps {
   selectableRef?: RefObject<HTMLElement | null>;
 }
 
-const CHATBOT_SYSTEM_PROMPT = `You are a helpful stock analysis assistant. The user is viewing a stock detail page and may ask questions about the data shown. Use the provided context (full page output) to answer accurately. If the context doesn't contain the answer, say so. Keep responses concise and beginner-friendly. Not financial advice.`;
+const FAQ_PROMPTS = [
+  "What's the overall sentiment?",
+  "Key risks to consider?",
+  "How does recent news affect this?",
+  "Summarize the key metrics",
+  "Is this a good time to buy?",
+];
+
+function getStockFaqPrompt(symbol: string, companyName: string): string {
+  const name = companyName || symbol;
+  return `What should I know about ${name}?`;
+}
+
+const CHATBOT_SYSTEM_PROMPT = `You are a helpful stock analysis assistant. The user is viewing a stock detail page and may ask questions about the data shown. Use the provided context (full page output) to answer accurately. If the context doesn't contain the answer, say so. Keep responses concise and beginner-friendly. Not financial advice.
+
+For "what should I know" or summary-style answers, use markdown tables with columns like "Item" and "What to know". Example:
+| Item | What to know |
+|------|--------------|
+| Ticker / Exchange | TSLA – listed on the Nasdaq |
+| Current price | $417.41 |
+
+When comparing data, showing proportions, or illustrating relationships, you may use Mermaid charts. Wrap Mermaid syntax in fenced code blocks with \`\`\`mermaid. Supported types: pie (pie charts), flowchart (flowcharts), xychart (line/bar charts). Example:
+\`\`\`mermaid
+pie title Revenue by Segment
+  "Product A" : 45
+  "Product B" : 30
+  "Product C" : 25
+\`\`\``;
 
 export default function DetailChatbot({ symbol, companyName, fullPageContext, selectableRef }: DetailChatbotProps) {
   const [open, setOpen] = useState(false);
@@ -60,9 +90,13 @@ export default function DetailChatbot({ symbol, companyName, fullPageContext, se
     return () => document.removeEventListener("mouseup", onMouseUp);
   }, [open, selectableRef]);
 
+  const lastMsg = messages[messages.length - 1];
+  const lastAssistantContent = lastMsg?.role === "assistant" ? lastMsg.content : "";
+  const lastRevealed = useRevealedText(lastAssistantContent, 25, 18);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, lastRevealed]);
 
   useEffect(() => {
     return () => {
@@ -139,8 +173,8 @@ export default function DetailChatbot({ symbol, companyName, fullPageContext, se
     setQuoteButtonPos(null);
   };
 
-  const sendMessage = async () => {
-    const text = input.trim();
+  const sendMessage = async (textToSend?: string) => {
+    const text = (textToSend ?? input).trim();
     if (!text || loading) return;
 
     const base = API_URL.replace(/\/$/, "");
@@ -317,31 +351,65 @@ export default function DetailChatbot({ symbol, companyName, fullPageContext, se
                 Ask anything about this stock&apos;s data, summaries, or news.
               </p>
             )}
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                data-assistant-message={m.role === "assistant" ? true : undefined}
-                style={{
-                  alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-                  maxWidth: "90%",
-                  padding: "0.5rem 0.75rem",
-                  borderRadius: "8px",
-                  fontSize: "0.875rem",
-                  background: m.role === "user" ? "var(--color-primary)" : "#f1f5f9",
-                  color: m.role === "user" ? "#fff" : "#334155",
-                  wordBreak: "break-word",
-                  ...(m.role === "user" && { whiteSpace: "pre-wrap" }),
-                }}
-              >
-                {m.role === "assistant" ? (
-                  <div className="markdown-content" style={{ lineHeight: 1.6 }}>
-                    <ReactMarkdown rehypePlugins={[rehypeRaw]}>{m.content}</ReactMarkdown>
-                  </div>
-                ) : (
-                  m.content
-                )}
-              </div>
-            ))}
+            {messages.map((m, i) => {
+              const isLastAssistant = m.role === "assistant" && i === messages.length - 1;
+              const displayContent = isLastAssistant ? lastRevealed : m.content;
+              return (
+                <div
+                  key={i}
+                  data-assistant-message={m.role === "assistant" ? true : undefined}
+                  style={{
+                    alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                    maxWidth: "90%",
+                    padding: "0.5rem 0.75rem",
+                    borderRadius: "8px",
+                    fontSize: "0.875rem",
+                    background: m.role === "user" ? "var(--color-primary)" : "#f1f5f9",
+                    color: m.role === "user" ? "#fff" : "#334155",
+                    wordBreak: "break-word",
+                    ...(m.role === "user" && { whiteSpace: "pre-wrap" }),
+                  }}
+                >
+                  {m.role === "assistant" ? (
+                    <div className="markdown-content" style={{ lineHeight: 1.6 }}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw]}
+                        components={{
+                          pre({ children, ...props }) {
+                            const child = Array.isArray(children) ? children[0] : children;
+                            const isMermaid =
+                              child &&
+                              typeof child === "object" &&
+                              "props" in child &&
+                              (child.props as { className?: string })?.className?.includes?.("language-mermaid");
+                            if (isMermaid) return <>{children}</>;
+                            return <pre {...props}>{children}</pre>;
+                          },
+                          code(props) {
+                            const { className, children, ...rest } = props;
+                            const inline = "inline" in props && props.inline;
+                            if (!inline && className?.includes("mermaid")) {
+                              const code = String(children).replace(/\n$/, "");
+                              return <MermaidCodeBlock code={code} className={className} />;
+                            }
+                            return (
+                              <code className={className} {...rest}>
+                                {children}
+                              </code>
+                            );
+                          },
+                        }}
+                      >
+                        {displayContent}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    m.content
+                  )}
+                </div>
+              );
+            })}
             {loading && (
               <div
                 style={{
@@ -373,6 +441,76 @@ export default function DetailChatbot({ symbol, companyName, fullPageContext, se
           )}
 
           <div ref={inputAreaRef} style={{ padding: "0.75rem", borderTop: "1px solid #e2e8f0" }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "0.375rem",
+                marginBottom: "0.5rem",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => sendMessage(getStockFaqPrompt(symbol, companyName))}
+                disabled={loading}
+                style={{
+                  padding: "0.25rem 0.5rem",
+                  fontSize: "0.75rem",
+                  borderRadius: "6px",
+                  border: "1px solid var(--color-primary-muted)",
+                  background: "var(--color-primary-light)",
+                  color: "var(--color-primary-hover)",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  transition: "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading) {
+                    e.currentTarget.style.background = "var(--color-primary)";
+                    e.currentTarget.style.borderColor = "var(--color-primary)";
+                    e.currentTarget.style.color = "#fff";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--color-primary-light)";
+                  e.currentTarget.style.borderColor = "var(--color-primary-muted)";
+                  e.currentTarget.style.color = "var(--color-primary-hover)";
+                }}
+              >
+                {getStockFaqPrompt(symbol, companyName)}
+              </button>
+              {FAQ_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => sendMessage(prompt)}
+                  disabled={loading}
+                  style={{
+                    padding: "0.25rem 0.5rem",
+                    fontSize: "0.75rem",
+                    borderRadius: "6px",
+                    border: "1px solid var(--color-primary-muted)",
+                    background: "var(--color-primary-light)",
+                    color: "var(--color-primary-hover)",
+                    cursor: loading ? "not-allowed" : "pointer",
+                    transition: "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading) {
+                      e.currentTarget.style.background = "var(--color-primary)";
+                      e.currentTarget.style.borderColor = "var(--color-primary)";
+                      e.currentTarget.style.color = "#fff";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "var(--color-primary-light)";
+                    e.currentTarget.style.borderColor = "var(--color-primary-muted)";
+                    e.currentTarget.style.color = "var(--color-primary-hover)";
+                  }}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
             {reference && (
               <div
                 style={{
@@ -426,7 +564,7 @@ export default function DetailChatbot({ symbol, companyName, fullPageContext, se
                 }}
               />
               <button
-                onClick={sendMessage}
+                onClick={() => sendMessage()}
                 disabled={loading || !input.trim()}
                 style={{
                   padding: "0.5rem 1rem",

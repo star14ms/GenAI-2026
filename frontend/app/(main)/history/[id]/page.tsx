@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import StockChart, { RANGES } from "@/components/StockChart";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSearchHistoryEntry, type SearchHistoryEntry } from "@/lib/searchHistory";
@@ -265,7 +266,7 @@ export default function HistoryViewPage() {
                     className="markdown-content"
                     style={{ fontSize: "0.9375rem", lineHeight: 1.6, color: "#475569" }}
                   >
-                    <ReactMarkdown>{quantitative.quantitative_summary}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{quantitative.quantitative_summary}</ReactMarkdown>
                   </div>
                 </div>
               ) : (
@@ -305,7 +306,7 @@ export default function HistoryViewPage() {
                     className="markdown-content"
                     style={{ fontSize: "0.9375rem", lineHeight: 1.6, color: "#475569" }}
                   >
-                    <ReactMarkdown>{qualitative.qualitative_summary}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{qualitative.qualitative_summary}</ReactMarkdown>
                   </div>
                 </div>
               ) : (
