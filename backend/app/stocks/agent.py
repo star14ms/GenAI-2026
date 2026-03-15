@@ -258,36 +258,153 @@ def generate_stock_agentic_summary(
     )
     quant_snapshot = _build_quant_snapshot(df)
 
-    prompt_payload = {
+    news_payload = {
         "symbol": clean_symbol,
+        "profile": profile,
+        "headlines": headlines,
+    }
+
+    news_prompt = (
+        "You are a beginner-friendly market news explainer. "
+        "Use only the provided profile and headlines. "
+        "Do not include technical indicators or model predictions.\n\n"
+        "Write 5 short bullet points in simple language:\n"
+        "1) Big picture takeaway (1 line)\n"
+        "2) Key news/events (2-3 items)\n"
+        "3) Why this matters for the stock\n"
+        "4) Main risks (macro/geopolitics/oil/rates)\n"
+        "5) What to watch next (week/month)\n\n"
+        "Rules: max 150 words, avoid jargon (or explain it in a few words), if data is missing say 'data unavailable', end with 'Not financial advice.'\n\n"
+        f"Context JSON:\n{json.dumps(news_payload, default=str, indent=2)}"
+    )
+
+    quant_payload = {
+        "symbol": clean_symbol,
+        "profile": profile,
+        "quant_snapshot": quant_snapshot,
+    }
+
+    quant_prompt = (
+        "You are a beginner-friendly quantitative stock explainer. "
+        "Use only the provided profile and quant_snapshot. "
+        "Do not discuss news in this section.\n\n"
+        "Write 5 short bullet points in simple language:\n"
+        "1) Data takeaway (1 line)\n"
+        "2) Recent performance (1M and 3M returns)\n"
+        "3) Key indicators in plain words (trend/momentum/volatility)\n"
+        "4) 3-month average prediction and what it implies vs latest price\n"
+        "5) Data-based risks/limitations\n\n"
+        "Rules: max 150 words, avoid jargon (or explain it), if a metric is missing say 'data unavailable', end with 'Not financial advice.'\n\n"
+        f"Context JSON:\n{json.dumps(quant_payload, default=str, indent=2)}"
+    )
+
+    news_summary = provider.chat([ChatMessage(role="user", content=news_prompt)])
+    data_prediction_summary = provider.chat([ChatMessage(role="user", content=quant_prompt)])
+
+    summary = (
+        "## News & Macro Summary\n"
+        f"{news_summary}\n\n"
+        "## Data & Prediction Summary\n"
+        f"{data_prediction_summary}"
+    )
+    return {
+        "symbol": clean_symbol,
+        "provider": provider.id,
+        "summary": summary,
+        "news_summary": news_summary,
+        "data_prediction_summary": data_prediction_summary,
         "profile": profile,
         "quant_snapshot": quant_snapshot,
         "headlines": headlines,
     }
 
-    prompt = (
-        "You are an agentic stock research assistant. "
-        "Use the quantitative stock data and the online news/macro context provided below to create a user-friendly stock summary. "
-        "Discuss technical/fundamental signals, relevant geopolitics, global events, war/sanctions risk, oil/energy effects, and macroeconomics such as rates/inflation. "
-        "Be balanced, specific, and readable for a normal user. "
-        "Do not pretend to know facts not in the provided context. "
-        "End with a short 'Not financial advice' disclaimer.\n\n"
-        "Format the answer with these sections:\n"
-        "1. Quick takeaway\n"
-        "2. Quantitative picture\n"
-        "3. Macro / geopolitics / global events\n"
-        "4. Bullish factors\n"
-        "5. Risks and watch-outs\n"
-        "6. What to watch over the next 3 months\n\n"
-        f"Context JSON:\n{json.dumps(prompt_payload, default=str, indent=2)}"
+
+def generate_qualitative_summary(
+    symbol: str,
+    provider_id: str = "chatgpt",
+    news_limit: int = 8,
+) -> dict:
+    clean_symbol = symbol.strip().upper()
+    provider = get_provider(provider_id)
+    if not provider:
+        raise ValueError("Unknown provider. Available: gemini, claude, chatgpt")
+
+    profile = _fetch_company_profile(clean_symbol)
+    headlines = _collect_market_news(
+        clean_symbol,
+        profile.get("company_name") or clean_symbol,
+        limit=news_limit,
     )
 
-    summary = provider.chat([ChatMessage(role="user", content=prompt)])
+    news_payload = {
+        "symbol": clean_symbol,
+        "profile": profile,
+        "headlines": headlines,
+    }
+
+    news_prompt = (
+        "You are a beginner-friendly market news explainer. "
+        "Use only the provided profile and headlines. "
+        "Do not include technical indicators or model predictions.\n\n"
+        "Write 5 short bullet points in simple language:\n"
+        "1) Big picture takeaway (1 line)\n"
+        "2) Key news/events (2-3 items)\n"
+        "3) Why this matters for the stock\n"
+        "4) Main risks (macro/geopolitics/oil/rates)\n"
+        "5) What to watch next (week/month)\n\n"
+        "Rules: max 150 words, avoid jargon (or explain it in a few words), if data is missing say 'data unavailable', end with 'Not financial advice.'\n\n"
+        f"Context JSON:\n{json.dumps(news_payload, default=str, indent=2)}"
+    )
+
+    qualitative_summary = provider.chat([ChatMessage(role="user", content=news_prompt)])
     return {
         "symbol": clean_symbol,
         "provider": provider.id,
-        "summary": summary,
+        "qualitative_summary": qualitative_summary,
+        "profile": profile,
+        "headlines": headlines,
+    }
+
+
+def generate_quantitative_summary(
+    symbol: str,
+    provider_id: str = "chatgpt",
+    days: int = 252,
+) -> dict:
+    clean_symbol = symbol.strip().upper()
+    provider = get_provider(provider_id)
+    if not provider:
+        raise ValueError("Unknown provider. Available: gemini, claude, chatgpt")
+
+    df = get_stock_features(clean_symbol, days)
+    profile = _fetch_company_profile(clean_symbol)
+    quant_snapshot = _build_quant_snapshot(df)
+
+    quant_payload = {
+        "symbol": clean_symbol,
         "profile": profile,
         "quant_snapshot": quant_snapshot,
-        "headlines": headlines,
+    }
+
+    quant_prompt = (
+        "You are a beginner-friendly quantitative stock explainer. "
+        "Use only the provided profile and quant_snapshot. "
+        "Do not discuss news in this section.\n\n"
+        "Write 5 short bullet points in simple language:\n"
+        "1) Data takeaway (1 line)\n"
+        "2) Recent performance (1M and 3M returns)\n"
+        "3) Key indicators in plain words (trend/momentum/volatility)\n"
+        "4) 3-month average prediction and what it implies vs latest price\n"
+        "5) Data-based risks/limitations\n\n"
+        "Rules: max 150 words, avoid jargon (or explain it), if a metric is missing say 'data unavailable', end with 'Not financial advice.'\n\n"
+        f"Context JSON:\n{json.dumps(quant_payload, default=str, indent=2)}"
+    )
+
+    quantitative_summary = provider.chat([ChatMessage(role="user", content=quant_prompt)])
+    return {
+        "symbol": clean_symbol,
+        "provider": provider.id,
+        "quantitative_summary": quantitative_summary,
+        "profile": profile,
+        "quant_snapshot": quant_snapshot,
     }
