@@ -49,22 +49,31 @@ App: http://localhost:3000
 
 ## Deployment
 
-### 1. Deploy Backend (AWS)
+### 1. Deploy Backend (AWS Lambda)
 
+**Build options:**
+- **Container** (chat + stocks): `make build` — requires Docker, full deps (pandas, alpaca, yfinance)
+- **Zip** (chat only): `make build-zip` — no Docker, minimal deps
+
+**Deploy:**
 ```bash
 cd backend
-sam build
-sam deploy --guided
+make build          # or make build-zip
+make deploy         # loads .env and deploys with parameter overrides
 ```
 
-On first run, answer the prompts (stack name, region, etc.). After deployment, note the **ApiUrl** output.
+`make deploy` reads `../.env` and passes keys to SAM. Ensure `.env` has no spaces around `=` (e.g. `ALPACA_API_KEY='...'`).
+
+**First-time setup:** Run `sam deploy --guided` once to configure stack name, region, etc. Then use `make deploy`.
+
+**Mac M1/M2:** Set `DOCKER_DEFAULT_PLATFORM=linux/amd64` if Docker build fails (Lambda runs x86_64).
 
 ### 2. Deploy Frontend (Vercel)
 
 1. Push the repo to GitHub.
 2. Go to [vercel.com](https://vercel.com) → New Project → Import repo.
 3. Set **Root Directory** to `frontend`.
-4. Add environment variable: `NEXT_PUBLIC_API_URL` = your ApiUrl from step 1.
+4. Add environment variable: `NEXT_PUBLIC_API_URL` = your ApiUrl from backend deployment.
 5. Deploy.
 
 Or via CLI:
@@ -75,6 +84,21 @@ npm i -g vercel
 vercel
 # Set root to frontend, add NEXT_PUBLIC_API_URL when prompted
 ```
+
+**Static assets:** Files in `frontend/public/` (e.g. `logo.png`) are included automatically — no extra config.
+
+---
+
+## Deployment Considerations
+
+| Topic | Notes |
+|-------|-------|
+| **Lambda env vars** | Backend needs `OPENAI_API_KEY`, `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` for full features. Pass via `make deploy` (from `.env`) or `sam deploy --parameter-overrides`. |
+| **Secrets** | Never commit `.env`. Use `--parameter-overrides` or AWS Secrets Manager for production. |
+| **SAM "No changes"** | If `sam deploy` says stack is up to date but env vars are wrong, update Lambda directly: `aws lambda update-function-configuration --function-name <name> --environment 'Variables={...}'`. |
+| **Docker issues** | On Mac, if you see read-only filesystem or I/O errors, see `docs/DOCKER_FIX.md` (VirtioFS → gRPC FUSE, disk space). |
+| **Stocks without Alpaca** | If Alpaca keys are missing, stock analysis/stream endpoints return 503. Chat and `/api/stocks/history` (yfinance) still work. |
+| **HuggingFace endpoint** | For `OPENAI_BASE_URL` (e.g. HuggingFace), also set `OPENAI_MODEL` to your deployed model id. |
 
 ## Chatbot (LLM)
 
@@ -88,18 +112,22 @@ Set the corresponding API key(s) for the provider(s) you want to use:
 | `ANTHROPIC_API_KEY` | Claude | [Anthropic Console](https://console.anthropic.com/) |
 | `OPENAI_API_KEY` | ChatGPT | [OpenAI Platform](https://platform.openai.com/) |
 
-For local development, create `backend/.env` (see `backend/.env.example`). For Lambda, add these as environment variables in `template.yaml` or via the AWS Console.
+For local development, create `.env` at project root (see `frontend/.env.example`). For Lambda, use `make deploy` (loads from `.env`) or pass via `sam deploy --parameter-overrides`.
 
 ## Environment Variables
 
 | Variable | Where | Description |
 |----------|-------|-------------|
-| `NEXT_PUBLIC_API_URL` | Vercel / .env.local | Backend API base URL (e.g. `https://xxx.execute-api.us-east-1.amazonaws.com`) |
+| `NEXT_PUBLIC_API_URL` | Vercel / .env.local | Backend API base URL (e.g. `https://xxx.execute-api.ca-central-1.amazonaws.com`) |
 | `NEXT_PUBLIC_SUPABASE_URL` | Vercel / .env.local | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Vercel / .env.local | Supabase anon public key |
 | `GEMINI_API_KEY` | Backend / Lambda | Google Gemini API key (chatbot) |
 | `ANTHROPIC_API_KEY` | Backend / Lambda | Anthropic Claude API key (chatbot) |
-| `OPENAI_API_KEY` | Backend / Lambda | OpenAI API key (chatbot) |
+| `OPENAI_API_KEY` | Backend / Lambda | OpenAI or HuggingFace token (chatbot) |
+| `OPENAI_BASE_URL` | Backend / Lambda | Optional. Override base URL (e.g. HuggingFace endpoint) |
+| `OPENAI_MODEL` | Backend / Lambda | Optional. Model id (e.g. `openai/gpt-oss-120b`) |
+| `ALPACA_API_KEY` | Backend / Lambda | Alpaca API key (stock data for analysis/stream) |
+| `ALPACA_SECRET_KEY` | Backend / Lambda | Alpaca secret key |
 
 ## Supabase Setup
 
