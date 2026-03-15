@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import StockChart, { RANGES } from "@/components/StockChart";
 import NewsThumbnail from "@/components/NewsThumbnail";
+import DetailChatbot from "@/components/DetailChatbot";
 import { getCompanyName } from "@/lib/stocks";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
@@ -49,6 +50,25 @@ export default function SearchPage() {
   const base = API_URL.replace(/\/$/, "");
   const points = pointsByRange[years] ?? [];
   const companyName = getCompanyName(symbol);
+  const searchResultRef = useRef<HTMLDivElement>(null);
+
+  const fullPageContext = [
+    `Symbol: ${symbol}`,
+    companyName ? `Company: ${companyName}` : "",
+    analysis?.latest_price != null ? `Latest price: $${analysis.latest_price.toFixed(2)}` : "",
+    analysis?.signal ? `Analysis signal: ${analysis.signal}` : "",
+    quantitative?.quantitative_summary
+      ? `\n## Quantitative Summary\n${quantitative.quantitative_summary}`
+      : "",
+    qualitative?.qualitative_summary
+      ? `\n## Qualitative Summary\n${qualitative.qualitative_summary}`
+      : "",
+    qualitative?.headlines && qualitative.headlines.length > 0
+      ? `\n## Recent News\n${qualitative.headlines.map((n) => `- ${n.title || "Article"}${n.published_at ? ` (${n.published_at})` : ""}`).join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   useEffect(() => {
     if (!symbol || !base || base === "undefined") {
@@ -345,7 +365,7 @@ export default function SearchPage() {
       </section>
 
       {/* Section 2: Quantitative + Qualitative - side by side, 50% width each */}
-      <section style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      <section ref={searchResultRef} style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
         <div style={{ display: "flex", flexDirection: "row", gap: "1.5rem", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 300px", minWidth: 0, display: "flex", flexDirection: "column" }}>
             {loadingQuantitative ? (
@@ -492,6 +512,13 @@ export default function SearchPage() {
           100% { background-position: -200% 0; }
         }
       `}</style>
+
+      <DetailChatbot
+        symbol={symbol}
+        companyName={companyName || symbol}
+        fullPageContext={fullPageContext}
+        selectableRef={searchResultRef}
+      />
     </main>
   );
 }
