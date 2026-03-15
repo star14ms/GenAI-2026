@@ -49,3 +49,36 @@ class GeminiProvider:
             return response.text
         return ""
 
+    def chat_stream(self, messages: list[ChatMessage], tools: list[str] | None = None):
+        """Stream chat response token by token. Yields text chunks."""
+        from google import genai
+        from google.genai import types
+
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY environment variable is required")
+
+        client = genai.Client(api_key=api_key)
+
+        system_instruction = None
+        contents = []
+        for msg in messages:
+            if msg.role == "system":
+                system_instruction = msg.content
+                continue
+            role = "user" if msg.role == "user" else "model"
+            contents.append(
+                types.Content(role=role, parts=[types.Part.from_text(text=msg.content)])
+            )
+
+        gen_config = types.GenerateContentConfig(system_instruction=system_instruction) if system_instruction else None
+        response_stream = client.models.generate_content_stream(
+            model="gemini-2.0-flash",
+            contents=contents,
+            config=gen_config,
+        )
+
+        for chunk in response_stream:
+            if chunk.text:
+                yield chunk.text
+

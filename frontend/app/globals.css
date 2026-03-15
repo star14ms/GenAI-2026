@@ -10,3 +10,52 @@ body {
   overflow-x: hidden;
   font-family: system-ui, -apple-system, sans-serif;
 }
+
+.markdown-content {
+  --md-color: #475569;
+}
+.markdown-content p {
+  margin: 0 0 0.75em;
+  color: var(--md-color);
+}
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  margin: 1em 0 0.5em;
+  color: #334155;
+  font-weight: 600;
+}
+.markdown-content h1:first-child,
+.markdown-content h2:first-child,
+.markdown-content h3:first-child {
+  margin-top: 0;
+}
+.markdown-content h1 { font-size: 1.125em; }
+.markdown-content h2 { font-size: 1.0625em; }
+.markdown-content h3 { font-size: 1em; }
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.25em;
+}
+.markdown-content li {
+  margin-bottom: 0.25em;
+}
+.markdown-content strong { font-weight: 600; }
+.markdown-content a {
+  color: #2563eb;
+  text-decoration: none;
+}
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+a.link-hover-underline {
+  text-decoration: none;
+}
+a.link-hover-underline:hover {
+  text-decoration: underline;
+}

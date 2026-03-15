@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import StockChart, { RANGES } from "@/components/StockChart";
+import { getCompanyName } from "@/lib/stocks";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -10,8 +13,6 @@ type HistoryPoint = {
   date: string;
   close: number | null;
 };
-
-const RANGES = [1, 3, 5, 10] as const;
 
 interface AnalysisData {
   data?: Record<string, unknown>[];
@@ -29,42 +30,64 @@ interface QuantitativeSummary {
   latest_metrics?: Record<string, unknown>;
 }
 
+type PointsByRange = Partial<Record<(typeof RANGES)[number], HistoryPoint[]>>;
+
 export default function SearchPage() {
   const params = useParams();
   const symbol = (params?.symbol as string)?.toUpperCase() || "";
   const [years, setYears] = useState<(typeof RANGES)[number]>(1);
-  const [points, setPoints] = useState<HistoryPoint[]>([]);
+  const [pointsByRange, setPointsByRange] = useState<PointsByRange>({});
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [qualitative, setQualitative] = useState<QualitativeSummary | null>(null);
   const [quantitative, setQuantitative] = useState<QuantitativeSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingChart, setLoadingChart] = useState(true);
+  const [loadingQualitative, setLoadingQualitative] = useState(true);
+  const [loadingQuantitative, setLoadingQuantitative] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const base = API_URL.replace(/\/$/, "");
+  const points = pointsByRange[years] ?? [];
+  const companyName = getCompanyName(symbol);
 
   useEffect(() => {
     if (!symbol || !base || base === "undefined") {
-      setLoading(false);
+      setLoadingChart(false);
+      setLoadingQualitative(false);
+      setLoadingQuantitative(false);
       setError("Invalid symbol or API not configured");
       return;
     }
 
-    setLoading(true);
+    setLoadingChart(true);
+    setLoadingQualitative(true);
+    setLoadingQuantitative(true);
     setError(null);
 
-    const loadHistory = async () => {
-      try {
-        const res = await fetch(
-          `${base}/api/stocks/history/${encodeURIComponent(symbol)}?years=${years}`
-        );
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Failed to load history");
-        setPoints((data.points || []).filter((p: HistoryPoint) => p.close !== null));
-      } catch (err) {
-        setPoints([]);
-        setError(err instanceof Error ? err.message : "Failed to load stock data");
+    const loadAllHistory = async () => {
+      const results = await Promise.all(
+        RANGES.map(async (y) => {
+          try {
+            const res = await fetch(
+              `${base}/api/stocks/history/${encodeURIComponent(symbol)}?years=${y}`
+            );
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Failed to load history");
+            return { years: y, points: (data.points || []).filter((p: HistoryPoint) => p.close !== null) };
+          } catch {
+            return { years: y, points: [] as HistoryPoint[] };
+          }
+        })
+      );
+      const byRange: PointsByRange = {};
+      for (const { years: y, points: pts } of results) {
+        byRange[y] = pts;
+      }
+      setPointsByRange(byRange);
+      if (results.every((r) => r.points.length === 0)) {
+        setError("Failed to load stock data");
       }
     };
+    loadAllHistory().finally(() => setLoadingChart(false));
 
     const loadAnalysis = async () => {
       try {
@@ -77,60 +100,144 @@ export default function SearchPage() {
         setAnalysis(null);
       }
     };
+    loadAnalysis();
 
-    const loadQualitative = async () => {
+    const qualAbort = new AbortController();
+    const quantAbort = new AbortController();
+    let qualCancelled = false;
+    let quantCancelled = false;
+
+    const sync = { qualReady: false, quantReady: false };
+    const releaseBoth = () => {
+      if (sync.qualReady && sync.quantReady) {
+        setLoadingQualitative(false);
+        setLoadingQuantitative(false);
+      }
+    };
+
+    const loadQualitativeStream = async () => {
       try {
         const res = await fetch(
-          `${base}/api/stocks/qualitative-summary/${encodeURIComponent(symbol)}?news_limit=5`
+          `${base}/api/stocks/qualitative-summary/${encodeURIComponent(symbol)}/stream?news_limit=5`,
+          { signal: qualAbort.signal }
         );
-        if (res.ok) {
-          const data = await res.json();
-          setQualitative(data);
+        if (qualCancelled) return;
+        if (!res.ok || !res.body) {
+          setQualitative(null);
+          setLoadingQualitative(false);
+          sync.qualReady = true;
+          releaseBoth();
+          return;
         }
-      } catch {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let headlines: { title?: string; link?: string; published_at?: string }[] = [];
+        let summary = "";
+        let metaParsed = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (qualCancelled) return;
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          if (!metaParsed && buffer.includes("\n")) {
+            const idx = buffer.indexOf("\n");
+            const firstLine = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 1);
+            metaParsed = true;
+            sync.qualReady = true;
+            releaseBoth();
+            try {
+              const meta = JSON.parse(firstLine) as { headlines?: typeof headlines };
+              if (meta.headlines) headlines = meta.headlines;
+              setQualitative({ qualitative_summary: "", headlines });
+            } catch {
+              summary += firstLine + "\n";
+            }
+          }
+
+          if (metaParsed) {
+            summary += buffer;
+            buffer = "";
+            setQualitative((prev) => ({
+              ...prev,
+              qualitative_summary: summary,
+              headlines: headlines.length ? headlines : prev?.headlines,
+            }));
+          }
+        }
+        if (qualCancelled) return;
+        if (buffer) {
+          summary += buffer;
+          setQualitative((prev) => ({
+            ...prev,
+            qualitative_summary: summary,
+            headlines: headlines.length ? headlines : prev?.headlines,
+          }));
+        }
+      } catch (e) {
+        if ((e as Error).name === "AbortError" || qualCancelled) return;
         setQualitative(null);
+        sync.qualReady = true;
+        releaseBoth();
+      } finally {
+        if (!qualCancelled) setLoadingQualitative(false);
       }
     };
 
-    const loadQuantitative = async () => {
+    const loadQuantitativeStream = async () => {
       try {
         const res = await fetch(
-          `${base}/api/stocks/quantitative-summary/${encodeURIComponent(symbol)}?days=252`
+          `${base}/api/stocks/quantitative-summary/${encodeURIComponent(symbol)}/stream?days=252`,
+          { signal: quantAbort.signal }
         );
-        if (res.ok) {
-          const data = await res.json();
-          setQuantitative(data);
+        if (quantCancelled) return;
+        if (!res.ok || !res.body) {
+          setQuantitative(null);
+          setLoadingQuantitative(false);
+          sync.quantReady = true;
+          releaseBoth();
+          return;
         }
-      } catch {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let summary = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (quantCancelled) return;
+          if (done) break;
+          summary += decoder.decode(value, { stream: true });
+          if (!sync.quantReady) {
+            sync.quantReady = true;
+            releaseBoth();
+          }
+          setQuantitative((prev) => ({
+            ...prev,
+            quantitative_summary: summary,
+          }));
+        }
+      } catch (e) {
+        if ((e as Error).name === "AbortError" || quantCancelled) return;
         setQuantitative(null);
+        sync.quantReady = true;
+        releaseBoth();
+      } finally {
+        if (!quantCancelled) setLoadingQuantitative(false);
       }
     };
 
-    Promise.all([
-      loadHistory(),
-      loadAnalysis(),
-      loadQualitative(),
-      loadQuantitative(),
-    ]).finally(() => setLoading(false));
-  }, [symbol, years, base]);
+    void Promise.all([loadQualitativeStream(), loadQuantitativeStream()]);
 
-  const chart = useMemo(() => {
-    if (!points.length) return null;
-    const width = 900;
-    const height = 300;
-    const values = points.map((p) => p.close ?? 0);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const range = Math.max(max - min, 1);
-    const polyline = points
-      .map((p, index) => {
-        const x = (index / Math.max(points.length - 1, 1)) * width;
-        const y = height - (((p.close ?? min) - min) / range) * height;
-        return `${x},${y}`;
-      })
-      .join(" ");
-    return { width, height, min, max, polyline };
-  }, [points]);
+    return () => {
+      qualCancelled = true;
+      quantCancelled = true;
+      qualAbort.abort();
+      quantAbort.abort();
+    };
+  }, [symbol, base]);
 
   const handleRangeChange = (range: (typeof RANGES)[number]) => {
     setYears(range);
@@ -140,7 +247,7 @@ export default function SearchPage() {
     return (
       <main style={{ padding: "2rem", textAlign: "center" }}>
         <p>No symbol provided.</p>
-        <Link href="/" style={{ color: "#2563eb", textDecoration: "none" }}>
+        <Link href="/" className="link-hover-underline" style={{ color: "#2563eb" }}>
           ← Back to search
         </Link>
       </main>
@@ -159,10 +266,10 @@ export default function SearchPage() {
       <header style={{ marginBottom: "1.5rem" }}>
         <Link
           href="/"
+          className="link-hover-underline"
           style={{
             fontSize: "0.875rem",
             color: "#64748b",
-            textDecoration: "none",
             marginBottom: "0.5rem",
             display: "inline-block",
           }}
@@ -170,13 +277,14 @@ export default function SearchPage() {
           ← Back to search
         </Link>
         <h1 style={{ fontSize: "1.75rem", marginBottom: "0.25rem" }}>
-          {symbol}
+          {companyName ? `${companyName} (${symbol})` : symbol}
         </h1>
         {analysis?.latest_price != null && (
           <p style={{ fontSize: "1.25rem", color: "#334155", fontWeight: 600 }}>
             ${analysis.latest_price.toFixed(2)}
             {analysis.signal && (
               <span
+                title="Based on RSI: below 30 = Oversold, above 70 = Overbought, 30-70 = Neutral"
                 style={{
                   marginLeft: "0.75rem",
                   fontSize: "0.875rem",
@@ -196,12 +304,6 @@ export default function SearchPage() {
         )}
       </header>
 
-      {loading && (
-        <p style={{ color: "#64748b", marginBottom: "1rem" }}>
-          Loading stock data...
-        </p>
-      )}
-
       {error && (
         <div
           style={{
@@ -216,167 +318,150 @@ export default function SearchPage() {
         </div>
       )}
 
-      {!loading && chart && (
-        <section style={{ marginBottom: "2rem" }}>
-          <div
-            style={{
-              display: "flex",
-              gap: "0.5rem",
-              alignItems: "center",
-              marginBottom: "1rem",
-              flexWrap: "wrap",
-            }}
-          >
-            <span style={{ fontSize: "0.875rem", color: "#64748b" }}>
-              Price history:
-            </span>
-            {RANGES.map((range) => (
-              <button
-                key={range}
-                onClick={() => handleRangeChange(range)}
-                style={{
-                  padding: "0.375rem 0.75rem",
-                  borderRadius: "8px",
-                  border: "1px solid #e2e8f0",
-                  background: years === range ? "#2563eb" : "#fff",
-                  color: years === range ? "#fff" : "#334155",
-                  cursor: "pointer",
-                  fontSize: "0.875rem",
-                }}
-              >
-                {range}Y
-              </button>
-            ))}
-          </div>
-          <div
-            style={{
-              border: "1px solid #e2e8f0",
-              borderRadius: "12px",
-              padding: "1rem",
-              background: "#fff",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-            }}
-          >
-            <svg
-              viewBox={`0 0 ${chart.width} ${chart.height}`}
-              style={{ width: "100%", height: "20rem", display: "block" }}
-              role="img"
-              aria-label={`${symbol} historical price chart`}
-            >
-              <polyline
-                fill="none"
-                stroke="#2563eb"
-                strokeWidth="2"
-                points={chart.polyline}
-              />
-            </svg>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginTop: "0.5rem",
-                fontSize: "0.875rem",
-                color: "#64748b",
-              }}
-            >
-              <span>Min: ${chart.min.toFixed(2)}</span>
-              <span>Max: ${chart.max.toFixed(2)}</span>
-              <span>Last: ${(points[points.length - 1]?.close ?? 0).toFixed(2)}</span>
+      {/* Section 1: Chart - fixed position */}
+      <section style={{ marginBottom: "2rem", minHeight: "22rem" }}>
+        {loadingChart ? (
+          <div className="search-detail-skeleton" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <div className="skeleton-block" style={{ width: "6rem", height: "1.25rem", borderRadius: "4px" }} />
+              {RANGES.map((r) => (
+                <div key={r} className="skeleton-block" style={{ width: "2.5rem", height: "1.75rem", borderRadius: "8px" }} />
+              ))}
             </div>
+            <div className="skeleton-block" style={{ height: "20rem", borderRadius: "12px" }} />
           </div>
-        </section>
-      )}
-
-      <section style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-        {qualitative?.qualitative_summary && (
-          <div
-            style={{
-              padding: "1rem",
-              background: "#f8fafc",
-              borderRadius: "12px",
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem", color: "#334155" }}>
-              Qualitative Summary
-            </h2>
-            <p style={{ fontSize: "0.9375rem", lineHeight: 1.6, color: "#475569", whiteSpace: "pre-wrap" }}>
-              {qualitative.qualitative_summary}
-            </p>
-            {qualitative.headlines && qualitative.headlines.length > 0 && (
-              <div style={{ marginTop: "1rem" }}>
-                <h3 style={{ fontSize: "0.875rem", marginBottom: "0.5rem", color: "#64748b" }}>
-                  Recent news
-                </h3>
-                <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.875rem" }}>
-                  {qualitative.headlines.slice(0, 5).map((n, i) => (
-                    <li key={i} style={{ marginBottom: "0.25rem" }}>
-                      {n.link ? (
-                        <a
-                          href={n.link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: "#2563eb", textDecoration: "none" }}
-                        >
-                          {n.title || "Article"}
-                        </a>
-                      ) : (
-                        n.title || "Article"
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-
-        {quantitative?.quantitative_summary && (
-          <div
-            style={{
-              padding: "1rem",
-              background: "#f8fafc",
-              borderRadius: "12px",
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem", color: "#334155" }}>
-              Quantitative Summary
-            </h2>
-            <p style={{ fontSize: "0.9375rem", lineHeight: 1.6, color: "#475569", whiteSpace: "pre-wrap" }}>
-              {quantitative.quantitative_summary}
-            </p>
-          </div>
-        )}
-
-        {analysis?.data && analysis.data.length > 0 && (
-          <div
-            style={{
-              padding: "1rem",
-              background: "#f8fafc",
-              borderRadius: "12px",
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem", color: "#334155" }}>
-              Technical Data (last 5 days)
-            </h2>
-            <div style={{ overflowX: "auto" }}>
-              <pre
-                style={{
-                  fontSize: "0.8125rem",
-                  color: "#475569",
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {JSON.stringify(analysis.data, null, 2)}
-              </pre>
+        ) : points.length > 0 ? (
+          <>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.875rem", color: "#64748b" }}>Price history:</span>
+              {RANGES.map((range) => (
+                <button
+                  key={range}
+                  onClick={() => handleRangeChange(range)}
+                  style={{
+                    padding: "0.375rem 0.75rem",
+                    borderRadius: "8px",
+                    border: "1px solid #e2e8f0",
+                    background: years === range ? "#2563eb" : "#fff",
+                    color: years === range ? "#fff" : "#334155",
+                    cursor: "pointer",
+                    fontSize: "0.875rem",
+                  }}
+                >
+                  {range}Y
+                </button>
+              ))}
             </div>
+            <StockChart points={points} years={years} height="20rem" />
+          </>
+        ) : (
+          <div style={{ padding: "2rem", textAlign: "center", color: "#64748b", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+            No price history available
           </div>
         )}
       </section>
+
+      {/* Section 2: Quantitative + Qualitative - side by side, 50% width each */}
+      <section style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: "1.5rem", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 300px", minWidth: 0, display: "flex", flexDirection: "column" }}>
+            {loadingQuantitative ? (
+              <div className="search-detail-skeleton" style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minHeight: 0 }}>
+                <div className="skeleton-block" style={{ width: "8rem", height: "1rem", marginBottom: "0.75rem", borderRadius: "4px" }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {[1, 2, 3, 4].map((j) => (
+                    <div key={j} className="skeleton-block" style={{ width: j === 4 ? "60%" : "100%", height: "0.875rem", borderRadius: "4px" }} />
+                  ))}
+                </div>
+              </div>
+            ) : quantitative?.quantitative_summary ? (
+              <div style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minHeight: 0, overflow: "auto" }}>
+                <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem", color: "#334155" }}>Quantitative Summary</h2>
+                <div className="markdown-content" style={{ fontSize: "0.9375rem", lineHeight: 1.6, color: "#475569" }}>
+                  <ReactMarkdown>{quantitative.quantitative_summary}</ReactMarkdown>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", color: "#94a3b8", fontSize: "0.875rem", flex: 1 }}>
+                Quantitative summary unavailable
+              </div>
+            )}
+          </div>
+
+          <div style={{ flex: "1 1 300px", minWidth: 0, display: "flex", flexDirection: "column" }}>
+            {loadingQualitative ? (
+              <div className="search-detail-skeleton" style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minHeight: 0 }}>
+                <div className="skeleton-block" style={{ width: "8rem", height: "1rem", marginBottom: "0.75rem", borderRadius: "4px" }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {[1, 2, 3, 4].map((j) => (
+                    <div key={j} className="skeleton-block" style={{ width: j === 4 ? "60%" : "100%", height: "0.875rem", borderRadius: "4px" }} />
+                  ))}
+                </div>
+              </div>
+            ) : qualitative?.qualitative_summary ? (
+              <div style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", flex: 1, minHeight: 0, overflow: "auto" }}>
+                <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem", color: "#334155" }}>Qualitative Summary</h2>
+                <div className="markdown-content" style={{ fontSize: "0.9375rem", lineHeight: 1.6, color: "#475569" }}>
+                  <ReactMarkdown>{qualitative.qualitative_summary}</ReactMarkdown>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", color: "#94a3b8", fontSize: "0.875rem", flex: 1 }}>
+                Qualitative summary unavailable
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Section 3: News - fixed position */}
+        <div style={{ minHeight: "6rem" }}>
+          {loadingQualitative ? (
+            <div className="search-detail-skeleton" style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+              <div className="skeleton-block" style={{ width: "6rem", height: "1rem", marginBottom: "0.75rem", borderRadius: "4px" }} />
+              <ul style={{ margin: 0, paddingLeft: "1.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <li key={i} style={{ listStyle: "none", paddingLeft: 0 }}>
+                    <div className="skeleton-block" style={{ width: `${70 + (i % 3) * 10}%`, height: "0.875rem", borderRadius: "4px" }} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : qualitative?.headlines && qualitative.headlines.length > 0 ? (
+            <div style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+              <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem", color: "#334155" }}>Recent news</h2>
+              <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.875rem" }}>
+                {qualitative.headlines.slice(0, 5).map((n, i) => (
+                  <li key={i} style={{ marginBottom: "0.25rem" }}>
+                    {n.link ? (
+                      <a href={n.link} target="_blank" rel="noopener noreferrer" className="link-hover-underline" style={{ color: "#2563eb" }}>
+                        {n.title || "Article"}
+                      </a>
+                    ) : (
+                      n.title || "Article"
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div style={{ padding: "1rem", background: "#f8fafc", borderRadius: "12px", border: "1px solid #e2e8f0", color: "#94a3b8", fontSize: "0.875rem" }}>
+              No recent news available
+            </div>
+          )}
+        </div>
+      </section>
+
+      <style>{`
+        .search-detail-skeleton .skeleton-block {
+          background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+          background-size: 200% 100%;
+          animation: search-skeleton-shimmer 1.5s ease-in-out infinite;
+        }
+        @keyframes search-skeleton-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
     </main>
   );
 }

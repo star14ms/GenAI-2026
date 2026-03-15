@@ -1,11 +1,18 @@
+import json
 import pandas as pd
 import pandas_ta as ta
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 import pytz
-from .agent import generate_qualitative_summary, generate_quantitative_summary
+from .agent import (
+    generate_qualitative_summary,
+    generate_qualitative_summary_stream,
+    generate_quantitative_summary,
+    generate_quantitative_summary_stream,
+)
 from .model import get_stock_features, get_historical_price_series
 from .predict import train_linear_model, predict_next_close
 
@@ -62,6 +69,42 @@ def get_qualitative_summary(
     return result
 
 
+@router.get("/api/stocks/qualitative-summary/{symbol}/stream")
+def stream_qualitative_summary(
+    symbol: str,
+    provider: str = "chatgpt",
+    news_limit: int = 8,
+):
+    """Stream qualitative summary as plain text chunks."""
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol or not clean_symbol.isalpha() or len(clean_symbol) > 5:
+        raise HTTPException(status_code=400, detail="Invalid stock symbol. Must be 1-5 alphabetic characters.")
+
+    if news_limit < 3 or news_limit > 15:
+        raise HTTPException(status_code=400, detail="news_limit must be between 3 and 15.")
+
+    def generate():
+        stream = generate_qualitative_summary_stream(
+            clean_symbol,
+            provider_id=provider,
+            news_limit=news_limit,
+        )
+        first = next(stream, None)
+        if first is not None and isinstance(first, dict) and "_meta" in first:
+            meta = first["_meta"]
+            yield (json.dumps(meta) + "\n").encode("utf-8")
+        elif first is not None:
+            yield first.encode("utf-8") if isinstance(first, str) else first
+        for chunk in stream:
+            yield chunk.encode("utf-8") if isinstance(chunk, str) else chunk
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/api/stocks/quantitative-summary/{symbol}")
 def get_quantitative_summary(
     symbol: str,
@@ -87,6 +130,36 @@ def get_quantitative_summary(
         raise HTTPException(status_code=500, detail=f"Error generating quantitative summary: {str(e)}")
 
     return result
+
+
+@router.get("/api/stocks/quantitative-summary/{symbol}/stream")
+def stream_quantitative_summary(
+    symbol: str,
+    provider: str = "chatgpt",
+    days: int = 252,
+):
+    """Stream quantitative summary as plain text chunks."""
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol or not clean_symbol.isalpha() or len(clean_symbol) > 5:
+        raise HTTPException(status_code=400, detail="Invalid stock symbol. Must be 1-5 alphabetic characters.")
+
+    if days < 60 or days > 365:
+        raise HTTPException(status_code=400, detail="Days must be between 60 and 365.")
+
+    def generate():
+        for chunk in generate_quantitative_summary_stream(
+            clean_symbol,
+            provider_id=provider,
+            days=days,
+        ):
+            yield chunk.encode("utf-8")
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 
 @router.get("/analysis/{symbol}")
 def get_stock_analysis(symbol: str, days: int = 30):

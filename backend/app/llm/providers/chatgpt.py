@@ -130,3 +130,30 @@ class ChatGPTProvider:
                 return "".join(text_parts).strip()
         return ""
 
+    def chat_stream(self, messages: list[ChatMessage], tools: list[str] | None = None):
+        """Stream chat response token by token. Yields text chunks."""
+        load_dotenv()
+        from openai import OpenAI
+
+        api_key = (
+            os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+            or os.environ.get("HF_TOKEN")
+        )
+        base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        model = self.model
+
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        formatted = [{"role": msg.role, "content": msg.content} for msg in messages]
+
+        payload: dict = {"model": model, "messages": formatted, "stream": True}
+        # Tools are not supported for streaming in this implementation
+
+        stream = client.chat.completions.create(**payload)
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+

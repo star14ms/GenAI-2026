@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState, useEffect } from "react";
+import StockChart, { RANGES } from "@/components/StockChart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -9,20 +10,22 @@ type HistoryPoint = {
   close: number | null;
 };
 
-const RANGES = [1, 3, 5, 10] as const;
+type PointsByRange = Partial<Record<(typeof RANGES)[number], HistoryPoint[]>>;
 
 export default function TestStocksPage() {
   const [symbol, setSymbol] = useState("AAPL");
   const [years, setYears] = useState<(typeof RANGES)[number]>(1);
-  const [points, setPoints] = useState<HistoryPoint[]>([]);
+  const [pointsByRange, setPointsByRange] = useState<PointsByRange>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleVisualize = () => {
-    loadHistory(years);
-  };
+  const points = pointsByRange[years] ?? [];
 
-  const loadHistory = async (nextYears: (typeof RANGES)[number]) => {
+  useEffect(() => {
+    setPointsByRange({});
+  }, [symbol]);
+
+  const loadAllHistory = async (selectYears?: (typeof RANGES)[number]) => {
     const cleanSymbol = symbol.trim().toUpperCase();
     if (!cleanSymbol) {
       setError("Please enter a stock symbol.");
@@ -37,56 +40,52 @@ export default function TestStocksPage() {
 
     setLoading(true);
     setError(null);
-    setYears(nextYears);
+    if (selectYears) setYears(selectYears);
 
     try {
-      const res = await fetch(
-        `${base}/api/stocks/history/${encodeURIComponent(cleanSymbol)}?years=${nextYears}`
+      const results = await Promise.all(
+        RANGES.map(async (y) => {
+          try {
+            const res = await fetch(
+              `${base}/api/stocks/history/${encodeURIComponent(cleanSymbol)}?years=${y}`
+            );
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Failed to load stock history");
+            return { years: y, points: (data.points || []).filter((p: HistoryPoint) => p.close !== null) };
+          } catch {
+            return { years: y, points: [] as HistoryPoint[] };
+          }
+        })
       );
-      let data: { detail?: string; points?: HistoryPoint[] } = {};
-      try {
-        data = await res.json();
-      } catch {
-        data = {};
+      const byRange: PointsByRange = {};
+      for (const { years: y, points: pts } of results) {
+        byRange[y] = pts;
       }
-      if (!res.ok) {
-        if (res.status === 404) {
-          throw new Error(
-            "Stocks API is not available in the deployed backend. Run the backend locally with full dependencies (pip install -r requirements-full.txt) for stocks support."
-          );
-        }
-        throw new Error(data.detail || "Failed to load stock history");
+      setPointsByRange(byRange);
+      if (results.every((r) => r.points.length === 0)) {
+        setError(
+          "Stocks API is not available in the deployed backend. Run the backend locally with full dependencies (pip install -r requirements-full.txt) for stocks support."
+        );
       }
-
-      setPoints((data.points || []).filter((p: HistoryPoint) => p.close !== null));
     } catch (err) {
-      setPoints([]);
+      setPointsByRange({});
       setError(err instanceof Error ? err.message : "Failed to load stock history");
     } finally {
       setLoading(false);
     }
   };
 
-  const chart = useMemo(() => {
-    if (!points.length) return null;
+  const handleVisualize = () => {
+    loadAllHistory(years);
+  };
 
-    const width = 900;
-    const height = 300;
-    const values = points.map((p) => p.close ?? 0);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const range = Math.max(max - min, 1);
-
-    const polyline = points
-      .map((p, index) => {
-        const x = (index / Math.max(points.length - 1, 1)) * width;
-        const y = height - (((p.close ?? min) - min) / range) * height;
-        return `${x},${y}`;
-      })
-      .join(" ");
-
-    return { width, height, min, max, polyline };
-  }, [points]);
+  const handleRangeClick = (range: (typeof RANGES)[number]) => {
+    if (pointsByRange[range]?.length) {
+      setYears(range);
+    } else {
+      loadAllHistory(range);
+    }
+  };
 
   return (
     <main style={{ maxWidth: "64rem", margin: "0 auto", padding: "1rem" }}>
@@ -146,7 +145,7 @@ export default function TestStocksPage() {
         {RANGES.map((range) => (
           <button
             key={range}
-            onClick={() => loadHistory(range)}
+            onClick={() => handleRangeClick(range)}
             disabled={loading}
             style={{
               padding: "0.5rem 0.75rem",
@@ -178,44 +177,9 @@ export default function TestStocksPage() {
 
       {loading && <p>Loading historical prices...</p>}
 
-      {!loading && chart && (
+      {!loading && points.length > 0 && (
         <section>
-          <div
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: "10px",
-              padding: "0.75rem",
-              background: "#fff",
-            }}
-          >
-            <svg
-              viewBox={`0 0 ${chart.width} ${chart.height}`}
-              style={{ width: "100%", height: "18rem", display: "block" }}
-              role="img"
-              aria-label="Historical stock close price chart"
-            >
-              <polyline
-                fill="none"
-                stroke="#2563eb"
-                strokeWidth="2"
-                points={chart.polyline}
-              />
-            </svg>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginTop: "0.5rem",
-              fontSize: "0.875rem",
-              color: "#555",
-            }}
-          >
-            <span>Min: {chart.min.toFixed(2)}</span>
-            <span>Max: {chart.max.toFixed(2)}</span>
-            <span>Last: {(points[points.length - 1]?.close ?? 0).toFixed(2)}</span>
-          </div>
+          <StockChart points={points} years={years} height="18rem" />
         </section>
       )}
     </main>

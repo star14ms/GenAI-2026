@@ -52,3 +52,36 @@ class ClaudeProvider:
                 return block.text
         return ""
 
+    def chat_stream(self, messages: list[ChatMessage], tools: list[str] | None = None):
+        """Stream chat response token by token. Yields text chunks."""
+        from anthropic import Anthropic
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable is required")
+
+        client = Anthropic(api_key=api_key)
+
+        system_text = None
+        formatted = []
+        for msg in messages:
+            if msg.role == "system":
+                system_text = msg.content
+                continue
+            if msg.role == "user":
+                formatted.append({"role": "user", "content": msg.content})
+            elif msg.role == "assistant":
+                formatted.append({"role": "assistant", "content": msg.content})
+
+        stream_kwargs: dict = {
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 1024,
+            "messages": formatted,
+        }
+        if system_text:
+            stream_kwargs["system"] = system_text
+        with client.messages.stream(**stream_kwargs) as stream:
+            for text in stream.text_stream:
+                if text:
+                    yield text
+
