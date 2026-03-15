@@ -98,11 +98,11 @@ export default function StockChart({ points, years, height = "20rem" }: StockCha
   return (
     <div
       style={{
-        border: "1px solid #e2e8f0",
+        border: "1px solid #fdba74",
         borderRadius: "12px",
         padding: "1rem",
         background: "#fff",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+        boxShadow: "0 1px 3px rgba(249, 115, 22, 0.12)",
       }}
     >
       <svg
@@ -114,7 +114,7 @@ export default function StockChart({ points, years, height = "20rem" }: StockCha
       >
         <polyline
           fill="none"
-          stroke="#2563eb"
+          stroke="#f97316"
           strokeWidth="2"
           points={polyline}
         />

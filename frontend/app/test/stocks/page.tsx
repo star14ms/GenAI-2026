@@ -151,7 +151,7 @@ export default function TestStocksPage() {
               padding: "0.5rem 0.75rem",
               borderRadius: "8px",
               border: "1px solid #ccc",
-              background: years === range ? "#2563eb" : "#fff",
+              background: years === range ? "var(--color-primary)" : "#fff",
               color: years === range ? "#fff" : "#111",
               cursor: loading ? "not-allowed" : "pointer",
             }}

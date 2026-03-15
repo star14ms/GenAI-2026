@@ -266,9 +266,9 @@ export default function SearchPage() {
 
   if (!symbol) {
     return (
-      <main style={{ padding: "2rem", textAlign: "center" }}>
+      <main style={{ padding: "2rem", textAlign: "center", minHeight: "100vh", background: "#ffedd5" }}>
         <p>No symbol provided.</p>
-        <Link href="/" className="link-hover-underline" style={{ color: "#2563eb" }}>
+        <Link href="/" className="link-hover-underline" style={{ color: "var(--color-primary)" }}>
           ← Back to search
         </Link>
       </main>
@@ -276,21 +276,21 @@ export default function SearchPage() {
   }
 
   return (
-    <main
-      style={{
-        maxWidth: "64rem",
-        margin: "0 auto",
-        padding: "1.5rem",
-        minHeight: "100vh",
-      }}
-    >
+    <div style={{ minHeight: "100vh", background: "#ffedd5", width: "100%" }}>
+      <main
+        style={{
+          maxWidth: "64rem",
+          margin: "0 auto",
+          padding: "1.5rem",
+        }}
+      >
       <header style={{ marginBottom: "1.5rem" }}>
         <Link
           href="/"
           className="link-hover-underline"
           style={{
             fontSize: "0.875rem",
-            color: "#64748b",
+            color: "var(--color-primary)",
             marginBottom: "0.5rem",
             display: "inline-block",
           }}
@@ -345,7 +345,7 @@ export default function SearchPage() {
                     padding: "0.375rem 0.75rem",
                     borderRadius: "8px",
                     border: "1px solid #e2e8f0",
-                    background: years === range ? "#2563eb" : "#fff",
+                    background: years === range ? "var(--color-primary)" : "#fff",
                     color: years === range ? "#fff" : "#334155",
                     cursor: "pointer",
                     fontSize: "0.875rem",
@@ -456,7 +456,7 @@ export default function SearchPage() {
                           height={64}
                         />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ color: "#2563eb", fontSize: "0.875rem", fontWeight: 500 }}>
+                          <span style={{ color: "var(--color-primary)", fontSize: "0.875rem", fontWeight: 500 }}>
                             {n.title || "Article"}
                           </span>
                           {n.published_at && (
@@ -520,5 +520,6 @@ export default function SearchPage() {
         selectableRef={searchResultRef}
       />
     </main>
+    </div>
   );
 }

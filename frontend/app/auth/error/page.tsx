@@ -29,7 +29,7 @@ function AuthErrorContent() {
         href="/"
         style={{
           padding: "0.5rem 1rem",
-          background: "#2563eb",
+          background: "var(--color-primary)",
           color: "white",
           borderRadius: "6px",
           textDecoration: "none",

@@ -204,12 +204,12 @@ export default function TestHome() {
         )}
       </div>
       <p style={{ marginBottom: "1.5rem" }}>
-        <a href="/test/chat" style={{ color: "#2563eb", textDecoration: "none" }}>
+        <a href="/test/chat" style={{ color: "var(--color-primary)", textDecoration: "none" }}>
           → Chatbot (Gemini, Claude, ChatGPT)
         </a>
       </p>
       <p style={{ marginBottom: "1.5rem" }}>
-        <a href="/test/stocks" style={{ color: "#2563eb", textDecoration: "none" }}>
+        <a href="/test/stocks" style={{ color: "var(--color-primary)", textDecoration: "none" }}>
           → Stock History (1Y / 3Y / 5Y / 10Y)
         </a>
       </p>

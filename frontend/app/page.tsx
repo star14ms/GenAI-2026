@@ -75,7 +75,7 @@ export default function Home() {
         alignItems: "center",
         justifyContent: "center",
         padding: "2rem",
-        background: "linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)",
+        background: "linear-gradient(180deg, #ffedd5 0%, #fdba74 50%, #e2e8f0 100%)",
       }}
     >
       <div
@@ -138,6 +138,15 @@ export default function Home() {
                   outline: "none",
                   transition: "border-color 0.2s, box-shadow 0.2s",
                 }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "var(--color-primary)";
+                  e.currentTarget.style.boxShadow = "0 0 0 3px rgba(234, 88, 12, 0.2)";
+                  if (query.trim().length > 0 && suggestions.length > 0) setShowDropdown(true);
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "#e2e8f0";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
                 onFocus={() => query.trim().length > 0 && suggestions.length > 0 && setShowDropdown(true)}
               />
               {showDropdown && suggestions.length > 0 && (
@@ -191,7 +200,7 @@ export default function Home() {
                 fontWeight: 600,
                 borderRadius: "12px",
                 border: "none",
-                background: query.trim() ? "#2563eb" : "#94a3b8",
+                background: query.trim() ? "var(--color-primary)" : "#94a3b8",
                 color: "white",
                 cursor: query.trim() ? "pointer" : "not-allowed",
                 transition: "background 0.2s",
@@ -209,7 +218,7 @@ export default function Home() {
             color: "#94a3b8",
           }}
         >
-          <a href="/test" style={{ color: "#64748b", textDecoration: "none" }}>
+          <a href="/test" style={{ color: "var(--color-primary)", textDecoration: "none" }}>
             Developer test page →
           </a>
         </p>
